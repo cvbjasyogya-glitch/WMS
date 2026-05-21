@@ -1,25 +1,37 @@
 ﻿{% extends "base.html" %}
 
-{% block title %}Admin Access | ERP-CV.BJAS{% endblock %}
+{% block title %}{% if admin_section == "users" %}User Management{% else %}Admin Access{% endif %} | ERP-CV.BJAS{% endblock %}
 {% block eyebrow %}Administrasi Sistem{% endblock %}
-{% block page_title %}Admin Access Center{% endblock %}
-{% block page_subtitle %}Pusat kontrol khusus untuk mengatur user, role, scope gudang, dan governance akses sistem tanpa tercampur dengan pengaturan gudang fisik.{% endblock %}
+{% block page_title %}{% if admin_section == "users" %}User Management{% else %}Admin Access Center{% endif %}{% endblock %}
+{% block page_subtitle %}{% if admin_section == "users" %}Kelola akun, role, password, scope homebase, dan tautan karyawan dari satu halaman khusus.{% else %}Dashboard ringkas untuk memantau role, scope user, approval, dan kesehatan akses sistem.{% endif %}{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
+{% block body_class %}admin-suite-shell{% endblock %}
 
 {% block extra_head %}
 <style>
     .admin-secret-trigger {
+        -webkit-appearance: none;
+        appearance: none;
         border: 0;
         padding: 0;
         background: transparent;
         color: inherit;
         font: inherit;
         cursor: pointer;
+        user-select: none;
+        -webkit-user-select: none;
     }
 
     .admin-secret-trigger:focus-visible {
-        outline: 2px solid rgba(93, 183, 255, 0.42);
+        outline: 2px solid rgba(215, 166, 53, 0.42);
         outline-offset: 3px;
         border-radius: 6px;
+    }
+
+    .admin-secret-trigger::selection,
+    .admin-secret-trigger *::selection {
+        background: transparent;
+        color: inherit;
     }
 
     .admin-hidden-archive-shell[hidden] {
@@ -32,7 +44,7 @@
 
     .admin-hidden-archive-card {
         width: 100%;
-        border: 1px solid rgba(93, 183, 255, 0.16);
+        border: 1px solid rgba(215, 166, 53, 0.24);
         border-radius: 18px;
         padding: 18px 20px;
         background: linear-gradient(180deg, rgba(18, 31, 51, 0.78), rgba(11, 20, 34, 0.9));
@@ -55,17 +67,16 @@
 </style>
 {% endblock %}
 
-{% block page_actions %}
-{% if session.get("role") == "super_admin" %}
-<a href="/admin/permissions" class="ghost-button">Hak Akses Fitur</a>
-{% endif %}
-<a href="/admin/warehouses" class="ghost-button">Sistem Gudang</a>
-{% endblock %}
-
 {% block content %}
 {% include "partials/admin_local_nav.html" %}
 
+{% if admin_section == "access" %}
 {% if session.get("role") == "super_admin" %}
+<div class="box admin-system-secret-note">
+    <p class="helper-text">Kontrol akses
+        <button type="button" class="admin-secret-trigger" data-admin-hidden-archive-trigger>sistem</button>.
+    </p>
+</div>
 <section class="admin-hidden-archive-shell" data-admin-hidden-archive-shell hidden aria-hidden="true">
     <button type="button" class="admin-hidden-archive-card" data-admin-hidden-archive-card>
         <strong>Arsip Sistem</strong>
@@ -90,10 +101,6 @@
     <div class="card-mini {% if health.unassigned_scoped_users %}warning{% endif %}">
         <p>User Scope Kosong</p>
         <h3>{{ health.unassigned_scoped_users }}</h3>
-    </div>
-    <div class="card-mini">
-        <p>Wajib OTP Login</p>
-        <h3>{{ health.otp_required_users }}</h3>
     </div>
 </div>
 
@@ -147,6 +154,7 @@
     </div>
 </details>
 
+{% elif admin_section == "users" %}
 <details class="form-box panel-disclosure">
     <summary class="panel-summary">
         <div class="section-title">
@@ -216,10 +224,6 @@
             </div>
             <div>
                 <label><input type="checkbox" name="notify_whatsapp"> Notifikasi WhatsApp</label>
-            </div>
-            <div>
-                <label><input type="checkbox" name="login_otp_required" {% if default_otp_required %}checked{% endif %}> Wajib OTP harian per perangkat</label>
-                <small class="helper-text">Perangkat baru tetap wajib OTP. Perangkat yang sudah lolos OTP tidak diminta lagi sampai ganti hari.</small>
             </div>
         </div>
         <div class="split-actions stack-gap-md">
@@ -310,11 +314,6 @@
                         <label><input type="checkbox" name="notify_whatsapp" {% if u.notify_whatsapp is defined and u.notify_whatsapp %}checked{% endif %}> Notifikasi WhatsApp</label>
                     </div>
                     <div>
-                        {% set user_otp_required = default_otp_required if u.login_otp_required is not defined or u.login_otp_required is none else u.login_otp_required %}
-                        <label><input type="checkbox" name="login_otp_required" {% if user_otp_required %}checked{% endif %}> Wajib OTP harian per perangkat</label>
-                        <small class="helper-text">Perangkat baru tetap wajib OTP. Matikan hanya untuk akun perangkat internal yang benar-benar dipercaya.</small>
-                    </div>
-                    <div>
                         <label>Password Baru</label>
                         <input type="password" name="password" placeholder="Opsional">
                     </div>
@@ -324,24 +323,7 @@
                 </div>
                 </form>
                 <form method="POST" action="/admin/delete_user/{{ u.id }}" class="stack-gap-sm">
-                    {% set impact = u.delete_impact if u.delete_impact is defined else None %}
-                    {% set impact_summary = impact["summary"] if impact else "Belum ada data terkait yang terdeteksi." %}
-                    <div class="helper-text" data-delete-impact-summary>
-                        <strong>Ringkasan dampak hapus user:</strong>
-                        {{ impact_summary }}
-                        {% if impact and impact["items"] %}
-                        <br>
-                        {% for item in impact["items"][:3] %}
-                        {{ item.label }}: {{ item.count }} {{ item.action }}{% if not loop.last %}; {% endif %}
-                        {% endfor %}
-                        {% if impact["items"]|length > 3 %}; dan {{ impact["items"]|length - 3 }} area lain{% endif %}
-                        {% endif %}
-                    </div>
-                    <button
-                        type="submit"
-                        class="danger-button"
-                        onclick="return confirm('Hapus user ini?\n\n{{ impact_summary|e }}\nData milik user seperti notifikasi, reset password, report, request, membership chat, dan histori operasional terkait akan ikut dibersihkan atau dilepas dari akun. Aksi ini tidak bisa dibatalkan.')"
-                    >Hapus</button>
+                    <button type="submit" class="danger-button" onclick="return confirm('Hapus user ini?')">Hapus</button>
                 </form>
             </div>
             {% endfor %}
@@ -351,6 +333,7 @@
         {% endif %}
     </div>
 </details>
+{% endif %}
 {% endblock %}
 
 {% block extra_scripts %}

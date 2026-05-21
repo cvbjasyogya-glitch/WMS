@@ -120,12 +120,36 @@
             </div>
         </header>
 
+        <nav class="pos-ipos-quickbar" aria-label="Shortcut kasir">
+            <button type="button" class="pos-ipos-quickbar-action is-primary" data-pos-focus-quicksearch>
+                <span>Scan / Cari Barang</span>
+                <kbd>/</kbd>
+            </button>
+            <button type="button" class="pos-ipos-quickbar-action" data-pos-focus-customer>
+                <span>Pelanggan</span>
+                <kbd>Shift F2</kbd>
+            </button>
+            <button type="button" class="pos-ipos-quickbar-action" data-pos-open-catalog>
+                <span>Daftar Item</span>
+                <kbd>F2</kbd>
+            </button>
+            <button type="button" class="pos-ipos-quickbar-action" data-pos-focus-paid>
+                <span>Bayar</span>
+                <kbd>F3</kbd>
+            </button>
+            <button type="button" class="pos-ipos-quickbar-action is-success" data-pos-trigger-checkout>
+                <span>Bayar</span>
+                <kbd>End</kbd>
+            </button>
+        </nav>
+
         <div class="pos-ipos-layout">
             <div class="pos-ipos-main">
                 <section class="pos-ipos-panel pos-ipos-transaction-panel">
                     <div class="pos-ipos-panel-head">
                         <div>
                             <strong>Data Transaksi</strong>
+                            <small>Isi customer, pilih member jika ada, lalu langsung scan barang.</small>
                         </div>
                     </div>
                     {% if editing_sale %}
@@ -233,7 +257,7 @@
                 <section class="pos-ipos-panel pos-ipos-draft-panel" id="posSelectedCard">
                     <div class="pos-ipos-panel-head">
                         <div>
-                            <strong>Pilih Barang</strong>
+                            <strong>Barang</strong>
                             <small>Barang yang dipilih dari quick search atau daftar item akan langsung masuk ke keranjang.</small>
                         </div>
                         <div class="pos-ipos-draft-head-actions">
@@ -268,7 +292,7 @@
                 <section class="pos-ipos-panel pos-ipos-cart-panel">
                     <div class="pos-ipos-panel-head">
                         <div>
-                            <strong>Keranjang Aktif</strong>
+                            <strong>Keranjang</strong>
                         </div>
                         <div class="pos-ipos-cart-head-actions">
                             <span class="pos-ipos-counter" id="posCartBadge">0 item</span>
@@ -300,112 +324,154 @@
                 </section>
             </div>
 
-            <aside class="pos-ipos-side">
-                <section class="pos-ipos-panel pos-ipos-payment-panel">
-                    <div class="pos-ipos-totalbox">
-                        <span class="pos-ipos-kicker">Total Belanja</span>
-                        <strong id="posGrandTotal">Rp 0</strong>
-                        <div class="pos-ipos-totalmeta">
-                            <span>Total Item</span>
-                            <strong id="posTotalItems">0</strong>
-                        </div>
+            <aside class="pos-ipos-side pos-ipos-payment-dock" aria-label="Ringkasan pembayaran cepat">
+                <section class="pos-ipos-panel pos-ipos-payment-compact">
+                    <div>
+                        <span>Total</span>
+                        <strong data-pos-payment-total-mirror>Rp 0</strong>
                     </div>
-
-                    <div class="pos-ipos-summaryrows">
-                        <div>
-                            <span>Sub Total</span>
-                            <strong id="posSubtotalValue">Rp 0</strong>
-                        </div>
-                        <div class="pos-ipos-summary-input pos-ipos-adjustment-input">
-                            <span>Potongan Custom</span>
-                            <div class="pos-ipos-adjustment-controls">
-                                <select id="posDiscountType" aria-label="Tipe potongan harga">
-                                    <option value="amount">Rp</option>
-                                    <option value="percent">%</option>
-                                </select>
-                                <input type="number" id="posDiscountInput" min="0" step="0.01" placeholder="0" inputmode="decimal" data-wms-currency="switch" data-wms-currency-switch-source="posDiscountType" data-wms-currency-switch-match="amount">
-                            </div>
-                        </div>
-                        <div>
-                            <span>Nilai Potongan</span>
-                            <strong id="posDiscountValue">Rp 0</strong>
-                        </div>
-                        <div class="pos-ipos-summary-input pos-ipos-adjustment-input">
-                            <span>Pajak Custom</span>
-                            <div class="pos-ipos-adjustment-controls">
-                                <select id="posTaxType" aria-label="Tipe pajak">
-                                    <option value="amount">Rp</option>
-                                    <option value="percent">%</option>
-                                </select>
-                                <input type="number" id="posTaxInput" min="0" step="0.01" placeholder="0" inputmode="decimal" data-wms-currency="switch" data-wms-currency-switch-source="posTaxType" data-wms-currency-switch-match="amount">
-                            </div>
-                        </div>
-                        <div>
-                            <span>Nilai Pajak</span>
-                            <strong id="posTaxValue">Rp 0</strong>
-                        </div>
-                        <label class="pos-ipos-summary-input" for="posPaidAmount">
-                            <span>Bayar</span>
-                            <input type="number" id="posPaidAmount" min="0" step="0.01" placeholder="0" data-wms-currency="currency">
-                        </label>
-                        <div class="is-accent">
-                            <span>Kembalian</span>
-                            <strong id="posChangeAmount">Rp 0</strong>
-                        </div>
-                        <div>
-                            <span>Preview</span>
-                            <strong id="posChangeAmountMirror">Rp 0</strong>
-                        </div>
+                    <div>
+                        <span>Item</span>
+                        <strong data-pos-payment-item-mirror>0</strong>
                     </div>
-
-                    <div class="pos-ipos-methods">
-                        <span class="pos-ipos-kicker">Metode Bayar</span>
-                        <input type="hidden" id="posPaymentMethod" value="{{ payment_methods[0] if payment_methods else 'cash' }}">
-                        <div class="pos-payment-method-grid pos-ipos-methodgrid" id="posPaymentMethodGrid">
-                            {% for method in payment_methods %}
-                            <button
-                                type="button"
-                                class="pos-payment-method{% if loop.first %} is-active{% endif %}"
-                                data-pos-payment-method="{{ method }}"
-                            >
-                                {{ "TF" if method|lower == "transfer" else ("CV" if method|lower == "cv" else method|upper) }}
-                            </button>
-                            {% endfor %}
-                        </div>
-                        <div class="split-actions">
-                            <button type="button" class="pos-vintage-mini" id="posCvTransactionButton">Transaksi CV</button>
-                            <small class="helper-text">Pakai tombol ini kalau transaksi harus masuk ke rekap CV saat tutup kasir. Metode bayar akan otomatis pindah ke CV.</small>
-                        </div>
-                        <label class="pos-ipos-split-toggle" for="posSplitPaymentToggle">
-                            <span class="pos-ipos-split-toggle-main">
-                                <input type="checkbox" id="posSplitPaymentToggle">
-                                <strong>Split Transaksi</strong>
-                            </span>
-                            <small>Bagi pembayaran ke 2 atau lebih metode sekaligus.</small>
-                        </label>
-                        <div class="pos-ipos-split-panel" id="posSplitPaymentPanel" hidden>
-                            <div class="pos-ipos-split-list" id="posSplitPaymentRows"></div>
-                            <div class="pos-ipos-split-actions">
-                                <button type="button" class="pos-vintage-mini" id="posAddSplitPaymentRow">Tambah Metode</button>
-                                <small class="helper-text" id="posSplitPaymentSummary">Aktifkan split transaksi untuk membagi pembayaran.</small>
-                            </div>
-                        </div>
-                        <small class="helper-text" id="posPaymentBankSummary" hidden>Bank debit belum dipilih.</small>
+                    <div>
+                        <span>Kembali</span>
+                        <strong data-pos-payment-change-mirror>Rp 0</strong>
                     </div>
-
-                    <div class="pos-ipos-shortcuts" id="posPaidQuickActions">
-                        <button type="button" class="pos-vintage-mini pos-ipos-shortcut-exact" data-pos-paid-shortcut="exact">Uang Pas</button>
-                        <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="10000">+10rb</button>
-                        <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="20000">+20rb</button>
-                        <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="50000">+50rb</button>
-                        <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="round">Bulatkan</button>
-                        <button type="button" class="pos-vintage-mini danger" data-pos-paid-shortcut="clear">Reset</button>
-                    </div>
-
-                    <button type="button" id="posCheckoutButton" class="pos-vintage-button is-success pos-ipos-checkout">{{ "Simpan Edit [END]" if editing_sale else "Bayar [END]" }}</button>
-                    <input type="hidden" id="posNote" value="">
+                    <button type="button" class="pos-vintage-button is-success pos-ipos-pay-open" data-pos-open-payment-modal>
+                        {{ "Simpan Edit [END]" if editing_sale else "Bayar [END]" }}
+                    </button>
                 </section>
             </aside>
+        </div>
+
+        <div class="pos-payment-modal" id="posPaymentModal" role="dialog" aria-modal="true" aria-labelledby="posPaymentModalTitle" aria-hidden="true" hidden>
+            <button type="button" class="pos-payment-modal-backdrop" data-pos-payment-modal-close aria-label="Tutup pembayaran"></button>
+            <section class="pos-payment-modal-window" tabindex="-1">
+                <header class="pos-payment-modal-head">
+                    <div>
+                        <span class="pos-ipos-kicker">Checkout</span>
+                        <h3 id="posPaymentModalTitle">Pembayaran</h3>
+                    </div>
+                    <button type="button" class="pos-payment-modal-close" data-pos-payment-modal-close aria-label="Tutup popup pembayaran">×</button>
+                </header>
+
+                <div class="pos-payment-modal-body">
+                    <section class="pos-ipos-panel pos-ipos-payment-panel">
+                        <div class="pos-ipos-totalbox">
+                            <span class="pos-ipos-kicker">Total Belanja</span>
+                            <strong id="posGrandTotal">Rp 0</strong>
+                            <div class="pos-ipos-totalmeta">
+                                <span>Total Item</span>
+                                <strong id="posTotalItems">0</strong>
+                            </div>
+                        </div>
+
+                        <div class="pos-ipos-summaryrows">
+                            <div class="pos-ipos-summary-heading">
+                                <span>Rincian</span>
+                            </div>
+                            <div>
+                                <span>Sub Total</span>
+                                <strong id="posSubtotalValue">Rp 0</strong>
+                            </div>
+                            <div class="pos-ipos-summary-input pos-ipos-adjustment-input">
+                                <span>Potongan Custom</span>
+                                <div class="pos-ipos-adjustment-controls">
+                                    <select id="posDiscountType" aria-label="Tipe potongan harga">
+                                        <option value="amount">Rp</option>
+                                        <option value="percent">%</option>
+                                    </select>
+                                    <input type="number" id="posDiscountInput" min="0" step="0.01" placeholder="0" inputmode="decimal" data-wms-currency="switch" data-wms-currency-switch-source="posDiscountType" data-wms-currency-switch-match="amount">
+                                </div>
+                            </div>
+                            <div>
+                                <span>Nilai Potongan</span>
+                                <strong id="posDiscountValue">Rp 0</strong>
+                            </div>
+                            <div class="pos-ipos-summary-input pos-ipos-adjustment-input">
+                                <span>Pajak Custom</span>
+                                <div class="pos-ipos-adjustment-controls">
+                                    <select id="posTaxType" aria-label="Tipe pajak">
+                                        <option value="amount">Rp</option>
+                                        <option value="percent">%</option>
+                                    </select>
+                                    <input type="number" id="posTaxInput" min="0" step="0.01" placeholder="0" inputmode="decimal" data-wms-currency="switch" data-wms-currency-switch-source="posTaxType" data-wms-currency-switch-match="amount">
+                                </div>
+                            </div>
+                            <div>
+                                <span>Nilai Pajak</span>
+                                <strong id="posTaxValue">Rp 0</strong>
+                            </div>
+                            <label class="pos-ipos-summary-input" for="posPaidAmount">
+                                <span>Bayar</span>
+                                <input type="number" id="posPaidAmount" min="0" step="0.01" placeholder="0" data-wms-currency="currency">
+                            </label>
+                            <div class="is-accent">
+                                <span>Kembalian</span>
+                                <strong id="posChangeAmount">Rp 0</strong>
+                            </div>
+                            <div>
+                                <span>Preview</span>
+                                <strong id="posChangeAmountMirror">Rp 0</strong>
+                            </div>
+                        </div>
+
+                        <div class="pos-ipos-methods">
+                            <span class="pos-ipos-kicker">Metode Bayar</span>
+                            <input type="hidden" id="posPaymentMethod" value="{{ payment_methods[0] if payment_methods else 'cash' }}">
+                            <div class="pos-payment-method-grid pos-ipos-methodgrid" id="posPaymentMethodGrid">
+                                {% for method in payment_methods %}
+                                <button
+                                    type="button"
+                                    class="pos-payment-method{% if loop.first %} is-active{% endif %}"
+                                    data-pos-payment-method="{{ method }}"
+                                >
+                                    {{ "TF" if method|lower == "transfer" else ("CV" if method|lower == "cv" else method|upper) }}
+                                </button>
+                                {% endfor %}
+                            </div>
+                            <div class="split-actions">
+                                <button type="button" class="pos-vintage-mini" id="posCvTransactionButton">Transaksi CV</button>
+                                <small class="helper-text">Pakai tombol ini kalau transaksi harus masuk ke rekap CV saat tutup kasir. Metode bayar akan otomatis pindah ke CV.</small>
+                            </div>
+                            <label class="pos-ipos-split-toggle" for="posSplitPaymentToggle">
+                                <span class="pos-ipos-split-toggle-main">
+                                    <input type="checkbox" id="posSplitPaymentToggle">
+                                    <strong>Split Transaksi</strong>
+                                </span>
+                                <small>Bagi pembayaran ke 2 atau lebih metode sekaligus.</small>
+                            </label>
+                            <div class="pos-ipos-split-panel" id="posSplitPaymentPanel" hidden>
+                                <div class="pos-ipos-split-list" id="posSplitPaymentRows"></div>
+                                <div class="pos-ipos-split-actions">
+                                    <button type="button" class="pos-vintage-mini" id="posAddSplitPaymentRow">Tambah Metode</button>
+                                    <small class="helper-text" id="posSplitPaymentSummary">Aktifkan split transaksi untuk membagi pembayaran.</small>
+                                </div>
+                            </div>
+                            <small class="helper-text" id="posPaymentBankSummary" hidden>Bank debit belum dipilih.</small>
+                        </div>
+
+                        <div class="pos-ipos-shortcuts" id="posPaidQuickActions">
+                            <button type="button" class="pos-vintage-mini pos-ipos-shortcut-exact" data-pos-paid-shortcut="exact">Uang Pas</button>
+                            <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="10000">+10rb</button>
+                            <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="20000">+20rb</button>
+                            <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="50000">+50rb</button>
+                            <button type="button" class="pos-vintage-mini" data-pos-paid-shortcut="round">Bulatkan</button>
+                            <button type="button" class="pos-vintage-mini danger" data-pos-paid-shortcut="clear">Reset</button>
+                        </div>
+
+                        <button type="button" id="posCheckoutButton" class="pos-vintage-button is-success pos-ipos-checkout">{{ "Simpan Edit [END]" if editing_sale else "Bayar [END]" }}</button>
+                        <div class="pos-checkout-progress" id="posCheckoutProgress" aria-live="polite" aria-hidden="true">
+                            <div class="progress-text" id="posCheckoutProgressText">Menyimpan...</div>
+                            <div class="progress-track">
+                                <div class="progress-bar"></div>
+                            </div>
+                        </div>
+                        <input type="hidden" id="posNote" value="">
+                    </section>
+                </div>
+            </section>
         </div>
 
         <div class="pos-vintage-picker pos-ipos-picker" id="posCatalogPicker" hidden>
@@ -510,16 +576,17 @@
             </div>
         </div>
 
-        <section class="pos-ipos-panel pos-ipos-log-shell" data-pos-sales-log-preview="1">
-            <div class="pos-ipos-panel-head">
-                <div>
+        <details class="pos-ipos-panel pos-ipos-log-shell" data-pos-sales-log-preview="1">
+            <summary class="pos-ipos-log-summary">
+                <span>
                     <strong>Log Penjualan Hari Ini</strong>
-                </div>
-                <div class="pos-ipos-log-head-actions">
+                    <small>Ringkasan disembunyikan agar layar kasir tetap fokus.</small>
+                </span>
+                <span class="pos-ipos-log-head-actions">
                     <span class="pos-ipos-counter">{{ sales_log_summary.transaction_total }} transaksi</span>
                     <a href="/kasir/log?warehouse={{ selected_warehouse }}&date_from={{ sale_date }}&date_to={{ sale_date }}" class="pos-vintage-mini">Lihat Semua Log</a>
-                </div>
-            </div>
+                </span>
+            </summary>
 
             <div class="pos-ipos-log-meta">
                 {% if can_view_pos_revenue %}
@@ -641,6 +708,6 @@
                 <div class="empty-state">Belum ada penjualan yang tercatat untuk tanggal ini.</div>
                 {% endif %}
             </div>
-        </section>
+        </details>
     </div>
 </section>

@@ -4,10 +4,16 @@
 {% block eyebrow %}POS Tools{% endblock %}
 {% block page_title %}Surat Jalan Manual{% endblock %}
 {% block page_subtitle %}Surat jalan ini mengikuti data yang diisi di invoice manual.{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
+{% block body_class %}pos-page-wide pos-manual-doc-page{% endblock %}
+{% block page_header %}{% endblock %}
 
 {% block extra_head %}
 <style>
-    .manual-delivery-layout { display: grid; grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.25fr); gap: 24px; }
+    body.pos-page-wide .layout { grid-template-columns: minmax(0, 1fr); }
+    body.pos-page-wide .main { padding: 20px 24px 32px; }
+    body.pos-page-wide .page-content.page-content-bleed { padding: 0; display: block; }
+    .manual-delivery-layout { display: grid; grid-template-columns: minmax(320px, 0.72fr) minmax(0, 1.28fr); gap: 24px; align-items: start; }
     .manual-delivery-tools { display: grid; gap: 18px; align-content: start; }
     .manual-delivery-tools .helper-card { display: grid; gap: 10px; }
     .manual-delivery-tools .helper-card strong { font-size: 14px; color: #f8fafc; }
@@ -15,15 +21,15 @@
     .manual-delivery-tools .helper-card li { color: rgba(226, 232, 240, 0.78); font-size: 13px; }
     .manual-delivery-tools .helper-card ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
     .manual-delivery-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-    .manual-delivery-actions .ghost-button.primary { background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.45); color: #dbeafe; }
+    .manual-delivery-actions .ghost-button.primary { background: rgba(215, 183, 96, 0.2); border: 1px solid rgba(215, 183, 96, 0.45); color: #fff4cf; }
     .manual-delivery-actions .ghost-button.accent { background: rgba(20, 184, 166, 0.16); border: 1px solid rgba(20, 184, 166, 0.4); color: #ccfbf1; }
     .manual-delivery-meta { display: grid; gap: 10px; }
     .manual-delivery-meta-card { border: 1px solid rgba(148, 163, 184, 0.22); border-radius: 16px; padding: 14px 16px; background: rgba(9, 18, 32, 0.46); }
     .manual-delivery-meta-card span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(148, 163, 184, 0.8); }
     .manual-delivery-meta-card strong { display: block; margin-top: 8px; font-size: 15px; color: #f8fafc; }
 
-    .manual-delivery-preview { background: #ffffff; color: #0f172a; border-radius: 18px; padding: 18px; border: 1px solid rgba(148, 163, 184, 0.25); }
-    .manual-delivery-sheet { border: 1px solid #dbe3f0; }
+    .manual-delivery-preview { position: sticky; top: 20px; background: #ffffff; color: #0f172a; border-radius: 18px; padding: 18px; border: 1px solid rgba(148, 163, 184, 0.25); min-width: 0; }
+    .manual-delivery-sheet { width: 100%; max-width: 920px; margin: 0 auto; border: 1px solid #dbe3f0; }
     .manual-delivery-topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 22px; background: #214e79; color: #ffffff; }
     .manual-delivery-brand { display: flex; align-items: center; gap: 12px; }
     .manual-delivery-logo { width: 52px; height: 52px; object-fit: contain; border-radius: 50%; background: #ffffff; padding: 6px; }
@@ -56,12 +62,15 @@
     .manual-delivery-bottom-bar { height: 8px; background: #214e79; }
 
     @media (max-width: 1100px) {
+        body.pos-page-wide .main { padding: 16px 16px 28px; }
         .manual-delivery-layout { grid-template-columns: 1fr; }
+        .manual-delivery-preview { position: static; }
         .manual-delivery-meta-grid,
         .manual-delivery-footer { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 720px) {
+        body.pos-page-wide .main { padding: 12px 12px 24px; }
         .manual-delivery-topbar {
             flex-direction: column;
             align-items: flex-start;
@@ -76,11 +85,6 @@
 
     @media print {
         @page { size: A4 portrait; margin: 10mm; }
-        html {
-            color-scheme: light;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-        }
         body { background: #ffffff !important; }
         body > *:not(.layout) { display: none !important; }
         .sidebar,
@@ -128,10 +132,6 @@
         .manual-delivery-table-wrap {
             overflow: visible !important;
             border-color: #dbe3f0 !important;
-        }
-        .manual-delivery-table {
-            min-width: 0 !important;
-            table-layout: fixed !important;
         }
         .manual-delivery-table thead th {
             background: #ffffff !important;
@@ -274,31 +274,38 @@
 
 {% block extra_scripts %}
 <script src="/static/js/pos_manual_document_draft.js"></script>
+<script id="manualDeliveryClientConfigData" type="application/json">
+{{ {
+    "initialDraft": {
+        "business_name": branding.get('business_name', ''),
+        "business_address": branding.get('business_address', ''),
+        "business_phone": branding.get('customer_service_phone', ''),
+        "logo_data_url": "",
+        "logo_filename": "",
+        "use_global_discount": false,
+        "global_discount_type": "amount",
+        "global_discount_value": 0,
+        "use_tax": false,
+        "tax_type": "percent",
+        "tax_value": 11,
+        "invoice_no": "",
+        "invoice_date": document_date,
+        "due_date": document_date,
+        "customer_name": "",
+        "customer_phone": "",
+        "customer_address": "",
+        "description": "",
+        "payment_note": "",
+        "items": []
+    },
+    "defaultLogoUrl": branding.get('logo_url') or ""
+}|tojson }}
+</script>
 <script>
 (() => {
     const draftStore = window.posManualDocumentDraft;
-    const initialDraft = {
-        business_name: {{ branding.get('business_name', '') | tojson }},
-        business_address: {{ branding.get('business_address', '') | tojson }},
-        business_phone: {{ branding.get('customer_service_phone', '') | tojson }},
-        logo_data_url: "",
-        logo_filename: "",
-        use_global_discount: false,
-        global_discount_type: "amount",
-        global_discount_value: 0,
-        use_tax: false,
-        tax_type: "percent",
-        tax_value: 11,
-        invoice_no: "",
-        invoice_date: {{ document_date | tojson }},
-        due_date: {{ document_date | tojson }},
-        customer_name: "",
-        customer_phone: "",
-        customer_address: "",
-        description: "",
-        payment_note: "",
-        items: [],
-    };
+    const manualDeliveryClientConfig = window.wmsReadJsonScript("manualDeliveryClientConfigData");
+    const initialDraft = manualDeliveryClientConfig.initialDraft || {};
 
     const previewItems = document.getElementById("manualDeliveryItems");
     const syncStatus = document.getElementById("manualDeliverySyncStatus");
@@ -308,7 +315,7 @@
     const printButton = document.getElementById("manualDeliveryPrint");
     const previewLogo = document.querySelector("[data-preview-logo]");
     const previewLogoFallback = document.querySelector("[data-preview-logo-fallback]");
-    const defaultLogoUrl = {{ (branding.get('logo_url') or '') | tojson }};
+    const defaultLogoUrl = String(manualDeliveryClientConfig.defaultLogoUrl || "");
 
     const escapeHtml = (value) => {
         return String(value ?? "").replace(/[&<>"']/g, (character) => {

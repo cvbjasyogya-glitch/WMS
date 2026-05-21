@@ -11,7 +11,7 @@
     stats: bootstrap.storageStats || {},
     activity: [],
     search: "",
-    viewMode: "list",
+    viewMode: "grid",
     selectedKeys: [],
     homeData: {
       starredItems: [],
@@ -57,10 +57,12 @@
     quotaChip: document.getElementById("quotaChip"),
     navHome: document.getElementById("nav-home"),
     navDrive: document.getElementById("nav-drive"),
+    navComputer: document.getElementById("nav-computer"),
     navRecent: document.getElementById("nav-recent"),
     navStarred: document.getElementById("nav-starred"),
     navShared: document.getElementById("nav-shared"),
     navShortcuts: document.getElementById("nav-shortcuts"),
+    navSpam: document.getElementById("nav-spam"),
     navAll: document.getElementById("nav-all"),
     navTrash: document.getElementById("nav-trash"),
     navTrashCount: document.getElementById("nav-trash-count"),
@@ -119,7 +121,6 @@
     homeFolderList: document.getElementById("home-folder-list"),
     homeSharedList: document.getElementById("home-shared-list"),
     homeShortcutList: document.getElementById("home-shortcut-list"),
-    quickActionButtons: Array.from(document.querySelectorAll("[data-sms-quick-action]")),
     dropzone: document.getElementById("dropzone"),
     folderCards: document.getElementById("folder-cards"),
     fileList: document.getElementById("file-list"),
@@ -146,18 +147,6 @@
     moveDialogCloseButton: document.getElementById("moveDialogCloseButton"),
     moveDialogCancelButton: document.getElementById("moveDialogCancelButton"),
     moveDialogSubmitButton: document.getElementById("moveDialogSubmitButton"),
-    actionDialog: document.getElementById("sms-action-dialog"),
-    actionDialogForm: document.getElementById("smsActionDialogForm"),
-    actionDialogTitle: document.getElementById("smsActionDialogTitle"),
-    actionDialogSummary: document.getElementById("smsActionDialogSummary"),
-    actionInputWrap: document.getElementById("smsActionInputWrap"),
-    actionInputLabel: document.getElementById("smsActionInputLabel"),
-    actionInput: document.getElementById("smsActionInput"),
-    actionInputHelper: document.getElementById("smsActionInputHelper"),
-    actionDialogList: document.getElementById("smsActionDialogList"),
-    actionDialogCloseButton: document.getElementById("smsActionDialogCloseButton"),
-    actionDialogCancelButton: document.getElementById("smsActionDialogCancelButton"),
-    actionDialogSubmitButton: document.getElementById("smsActionDialogSubmitButton"),
     queuePanel: document.getElementById("queue-panel"),
     queueSummary: document.getElementById("queue-summary"),
     queueList: document.getElementById("queue-list"),
@@ -176,7 +165,6 @@
   };
 
   const numberFormatter = new Intl.NumberFormat("id-ID");
-  let actionDialogResolver = null;
   const dateFormatter = new Intl.DateTimeFormat("id-ID", {
     timeZone: window.wmsDisplayTimeZone || "Asia/Jakarta",
     day: "2-digit",
@@ -246,41 +234,47 @@
     if (state.section === "shared" && state.sharedContext.shareId) {
       return state.sharedContext.currentPath
         ? state.sharedContext.currentPath.split("/").pop()
-        : state.sharedContext.label || "Shared";
+        : state.sharedContext.label || "Dibagikan";
     }
-    if (state.section === "trash") return "Trash";
-    if (state.section === "recent") return "Recent";
-    if (state.section === "starred") return "Starred";
-    if (state.section === "shared") return "Shared";
-    if (state.section === "shortcuts") return "Shortcuts";
-    if (state.section === "all") return "Semua File";
+    if (state.section === "home") return "Drive";
+    if (state.section === "computer") return "Komputer";
+    if (state.section === "trash") return "Sampah";
+    if (state.section === "spam") return "Spam";
+    if (state.section === "recent") return "Terbaru";
+    if (state.section === "starred") return "Berbintang";
+    if (state.section === "shared") return "Dibagikan";
+    if (state.section === "shortcuts") return "Pintasan";
+    if (state.section === "all") return "Penyimpanan";
     if (state.currentPath) return state.currentPath.split("/").pop();
-    return "My Drive";
+    return "Drive Saya";
   }
 
   function getCurrentSectionSubtitle() {
     if (state.section === "shared" && state.sharedContext.shareId) {
       return `Membuka item yang dibagikan oleh ${state.sharedContext.ownerUsername || "rekan kerja"} dalam mode baca.`;
     }
-    if (state.section === "trash") return "Kelola item yang sudah dipindahkan ke trash atau hapus permanen bila sudah tidak dibutuhkan.";
-    if (state.section === "recent") return "Kumpulan file terakhir yang berubah di ruang storage pribadimu.";
-    if (state.section === "starred") return "Daftar file dan folder penting yang kamu tandai untuk akses cepat lintas workspace.";
-    if (state.section === "shared") return "Kumpulan file dan folder yang kamu bagikan atau kamu terima dari user lain.";
-    if (state.section === "shortcuts") return "Daftar jalan pintas ke file dan folder penting tanpa perlu bolak-balik cari lokasi aslinya.";
-    if (state.section === "all") return "Index seluruh file dan folder milik akun aktif.";
-    if (state.section === "home") return "Ringkasan workspace dan folder yang paling sering kamu buka.";
-    return "Kelola file dan folder di drive pribadimu.";
+    if (state.section === "computer") return "Folder komputer yang tersinkron akan muncul di sini.";
+    if (state.section === "trash") return "Item yang dipindahkan ke sampah akan dihapus permanen setelah tidak dibutuhkan.";
+    if (state.section === "spam") return "File spam tidak akan muncul di tempat lain di Drive.";
+    if (state.section === "recent") return "File terakhir yang kamu buka atau ubah.";
+    if (state.section === "starred") return "File dan folder penting yang kamu tandai.";
+    if (state.section === "shared") return "File dan folder yang dibagikan ke akun ini.";
+    if (state.section === "shortcuts") return "Pintasan ke file dan folder penting.";
+    if (state.section === "all") return "Ruang file akun ini.";
+    if (state.section === "home") return "File kerja tersimpan rapi.";
+    return "Kelola file Drive Saya.";
   }
 
   function getWorkspaceKicker() {
-    if (state.section === "shared" && state.sharedContext.shareId) return "Shared Access";
-    if (state.section === "trash") return "Recycle";
-    if (state.section === "recent") return "Recent";
-    if (state.section === "starred") return "Starred";
-    if (state.section === "shared") return "Shared";
-    if (state.section === "shortcuts") return "Shortcut";
-    if (state.section === "all") return "Library";
-    return "Workspace";
+    if (state.section === "shared" && state.sharedContext.shareId) return "Akses Dibagikan";
+    if (state.section === "computer") return "Komputer";
+    if (state.section === "trash") return "Sampah";
+    if (state.section === "spam") return "Spam";
+    if (state.section === "recent") return "Tanggal diubah";
+    if (state.section === "starred") return "Nama";
+    if (state.section === "shared") return "Tanggal dibagikan";
+    if (state.section === "all") return "Penyimpanan";
+    return "Folder yang disarankan";
   }
 
   function getItemKey(item) {
@@ -322,14 +316,14 @@
       const recipients = Array.isArray(item?.sharedRecipients || item?.shared_recipients)
         ? (item.sharedRecipients || item.shared_recipients)
         : [];
-      return recipients.length ? `Shared ke ${recipients.length} user` : (item?.path || "My Drive");
+      return recipients.length ? `Dibagikan ke ${recipients.length} user` : (item?.path || "Drive Saya");
     }
     if (!item?.shortcut) {
-      return item?.path || "My Drive";
+      return item?.path || "Drive Saya";
     }
-    const parentPath = getShortcutParentPath(item) || "My Drive";
-    const targetPath = getItemResolvedPath(item) || "My Drive";
-    return `Shortcut: ${parentPath} | Target: ${targetPath}`;
+    const parentPath = getShortcutParentPath(item) || "Drive Saya";
+    const targetPath = getItemResolvedPath(item) || "Drive Saya";
+    return `Pintasan: ${parentPath} | Target: ${targetPath}`;
   }
 
   function canMutateCurrentLocation() {
@@ -378,15 +372,23 @@
     [
       [elements.navHome, "home"],
       [elements.navDrive, "drive"],
+      [elements.navComputer, "computer"],
       [elements.navRecent, "recent"],
       [elements.navStarred, "starred"],
       [elements.navShared, "shared"],
       [elements.navShortcuts, "shortcuts"],
+      [elements.navSpam, "spam"],
       [elements.navAll, "all"],
       [elements.navTrash, "trash"]
     ].forEach(([element, section]) => {
+      if (!element) return;
       element.classList.toggle("is-active", state.section === section);
     });
+  }
+
+  function syncViewModeButtons() {
+    elements.viewListBtn.classList.toggle("is-active", state.viewMode === "list");
+    elements.viewGridBtn.classList.toggle("is-active", state.viewMode === "grid");
   }
 
   function showFeedback(message, type = "info") {
@@ -411,13 +413,13 @@
     elements.usagePercent.textContent = stats.quotaBytes
       ? `${Math.round(usagePercent)}%`
       : "0%";
-    elements.usageText.textContent = `${stats.total_size_label || formatBytes(stats.totalBytes)} terpakai dari ${stats.quota_label || formatBytes(stats.quotaBytes)}`;
+    elements.usageText.textContent = `${stats.total_size_label || formatBytes(stats.totalBytes)} / ${stats.quota_label || formatBytes(stats.quotaBytes)}`;
     elements.statFiles.textContent = numberFormatter.format(Number(stats.totalFiles || stats.total_files || 0));
     elements.statFolders.textContent = numberFormatter.format(Number(stats.totalFolders || stats.total_folders || 0));
     elements.statTrash.textContent = numberFormatter.format(Number(stats.trashCount || stats.trash_count || 0));
     elements.statUpdated.textContent = stats.latestUpdate || stats.latest_update
       ? `Update terakhir ${formatDate(stats.latestUpdate || stats.latest_update)}`
-      : "Belum ada aktivitas";
+      : "Dapatkan penyimpanan ekstra";
     elements.storageProgressBar.style.width = `${Math.max(0, Math.min(100, usagePercent))}%`;
     elements.navTrashCount.textContent = numberFormatter.format(Number(stats.trashCount || stats.trash_count || 0));
     elements.navTrashCount.classList.toggle("hidden", Number(stats.trashCount || stats.trash_count || 0) === 0);
@@ -454,30 +456,33 @@
     elements.activityList.innerHTML = activity.slice(0, 10).map((item) => `
       <article class="activity-item">
         <strong>${escapeHtml(String(item.action || "update").replace(/(^\w)/, (match) => match.toUpperCase()))}</strong>
-        <span>${escapeHtml(item.target_path || item.targetPath || "My Drive")}</span>
+        <span>${escapeHtml(item.target_path || item.targetPath || "Drive Saya")}</span>
       </article>
     `).join("");
   }
 
   function renderHeader() {
+    elements.appShell.dataset.section = state.section;
     elements.workspaceKicker.textContent = getWorkspaceKicker();
     elements.currentViewTitle.textContent = getCurrentSectionLabel();
     elements.sectionSubtitle.textContent = getCurrentSectionSubtitle();
     elements.currentPathLabel.textContent = getCurrentSectionLabel();
     elements.surfaceBadge.textContent = isTrashView()
-      ? "Trash"
+      ? "Sampah"
+      : state.section === "spam"
+        ? "Spam"
       : state.section === "starred"
-        ? "Focus"
+        ? "Berbintang"
         : state.section === "shared"
-          ? "Shared"
+          ? "Dibagikan"
           : state.section === "shortcuts"
-            ? "Shortcut"
-        : "Ready";
+            ? "Pintasan"
+        : "Drive";
     const summary = state.summary || {};
     const fileCount = Number(summary.fileCount || summary.file_count || 0);
     const folderCount = Number(summary.folderCount || summary.folder_count || 0);
     const totalItems = fileCount + folderCount;
-    elements.folderContents.textContent = `${numberFormatter.format(totalItems)} item | ${numberFormatter.format(folderCount)} folder | ${numberFormatter.format(fileCount)} file`;
+    elements.folderContents.textContent = `${numberFormatter.format(totalItems)} item`;
   }
 
   function renderBreadcrumbs() {
@@ -497,30 +502,54 @@
   }
 
   function getIconLabel(item) {
-    if (item.kind === "folder") return "DIR";
+    if (item.kind === "folder") return "Folder";
     const category = item.category || "other";
-    if (category === "image") return "IMG";
-    if (category === "video") return "VID";
-    if (category === "audio") return "AUD";
-    if (category === "archive") return "ZIP";
-    if (category === "document") return "DOC";
-    if (category === "text") return "TXT";
-    return "FILE";
+    if (category === "image") return "Image";
+    if (category === "video") return "Video";
+    if (category === "audio") return "Audio";
+    if (category === "archive") return "Zip";
+    if (category === "document") return "Docs";
+    if (category === "text") return "Text";
+    return "File";
+  }
+
+  function getItemIconClass(item) {
+    if (item.kind === "folder") return "file-icon-folder";
+    const category = item.category || "other";
+    if (category === "image") return "file-icon-image";
+    if (category === "video") return "file-icon-video";
+    if (category === "audio") return "file-icon-audio";
+    if (category === "archive") return "file-icon-archive";
+    if (category === "document") return "file-icon-document";
+    if (category === "text") return "file-icon-text";
+    return "file-icon-other";
+  }
+
+  function getPreviewLabel(item) {
+    if (item.kind === "folder") return "Folder";
+    const category = item.category || "file";
+    if (category === "document") return "Dokumen";
+    if (category === "image") return "Gambar";
+    if (category === "video") return "Video";
+    if (category === "audio") return "Audio";
+    if (category === "archive") return "Arsip";
+    if (category === "text") return "Teks";
+    return "File";
   }
 
   function buildRowActions(item) {
     if (isTrashView()) {
       return `
-        <button type="button" class="file-action-btn" data-action="restore" data-key="${escapeHtml(getItemKey(item))}">Restore</button>
-        <button type="button" class="file-action-btn" data-action="delete" data-key="${escapeHtml(getItemKey(item))}">Delete</button>
+        <button type="button" class="file-action-btn" data-action="restore" data-key="${escapeHtml(getItemKey(item))}">Pulihkan</button>
+        <button type="button" class="file-action-btn" data-action="delete" data-key="${escapeHtml(getItemKey(item))}">Hapus</button>
       `;
     }
     const openLabel = item.kind === "folder" ? "Buka" : (item.previewable ? "Preview" : "Download");
     const starLabel = item.starred ? "Lepas Bintang" : "Bintangi";
     const shareLabel = isExternalSharedItem(item)
-      ? "Read only"
-      : (item.shared ? "Kelola Shared" : "Bagikan");
-    const shortcutLabel = item.shortcut ? "Hapus Shortcut" : "Shortcut Cepat";
+      ? "Hanya lihat"
+      : (item.shared ? "Kelola akses" : "Bagikan");
+    const shortcutLabel = item.shortcut ? "Hapus pintasan" : "Buat pintasan";
     if (item.shortcut) {
       return `
         <button type="button" class="file-action-btn" data-action="open" data-key="${escapeHtml(getItemKey(item))}">${openLabel}</button>
@@ -537,30 +566,33 @@
       <button type="button" class="file-action-btn ${item.shortcut ? "is-shortcut" : ""}" data-action="toggle-shortcut" data-key="${escapeHtml(getItemKey(item))}">${shortcutLabel}</button>
       <button type="button" class="file-action-btn" data-action="download" data-key="${escapeHtml(getItemKey(item))}">Download</button>
       <button type="button" class="file-action-btn" data-action="move" data-key="${escapeHtml(getItemKey(item))}" ${isExternalSharedItem(item) ? "disabled" : ""}>Pindah</button>
-      <button type="button" class="file-action-btn" data-action="delete" data-key="${escapeHtml(getItemKey(item))}" ${isExternalSharedItem(item) ? "disabled" : ""}>Delete</button>
+      <button type="button" class="file-action-btn" data-action="delete" data-key="${escapeHtml(getItemKey(item))}" ${isExternalSharedItem(item) ? "disabled" : ""}>Hapus</button>
     `;
   }
 
   function renderFolderCards(items) {
-    const folders = items.filter((item) => item.kind === "folder").slice(0, 4);
-    elements.folderCards.classList.toggle("hidden", folders.length === 0 || isTrashView());
+    const folders = items.filter((item) => item.kind === "folder").slice(0, 18);
+    elements.folderCards.classList.toggle("hidden", folders.length === 0 || isTrashView() || state.section === "spam");
     elements.folderCards.innerHTML = folders.map((folder) => `
       <article class="folder-card">
         <button type="button" data-action="open" data-key="${escapeHtml(getItemKey(folder))}">
           <div class="file-main">
-            <div class="file-icon">${escapeHtml(getIconLabel(folder))}</div>
+            <div class="file-icon ${escapeHtml(getItemIconClass(folder))}" aria-hidden="true">${escapeHtml(getIconLabel(folder))}</div>
             <div class="folder-card-copy">
               <strong>${escapeHtml(folder.name)}</strong>
-              <span title="${escapeHtml(getItemLocationLabel(folder))}">${escapeHtml(getItemLocationLabel(folder))}</span>
             </div>
           </div>
         </button>
+        <button type="button" class="folder-kebab" data-action="context" data-key="${escapeHtml(getItemKey(folder))}" aria-label="Menu ${escapeHtml(folder.name)}">...</button>
       </article>
     `).join("");
   }
 
   function renderFileList() {
     const visibleItems = getVisibleItems();
+    const fileItems = state.viewMode === "grid"
+      ? visibleItems.filter((item) => item.kind !== "folder")
+      : visibleItems;
     const selectedSet = new Set(state.selectedKeys);
     elements.fileList.classList.toggle("is-grid", state.viewMode === "grid");
     elements.emptyState.classList.toggle("hidden", visibleItems.length > 0);
@@ -568,25 +600,49 @@
     if (!visibleItems.length) {
       elements.fileList.innerHTML = "";
       renderFolderCards([]);
+      if (state.section === "spam") {
+        elements.emptyState.innerHTML = `
+          <strong>Spam Anda kosong</strong>
+          <p>File di spam tidak akan muncul di tempat lain di Drive.</p>
+        `;
+      } else if (state.section === "computer") {
+        elements.emptyState.innerHTML = `
+          <strong>Komputer kosong</strong>
+          <p>Folder dari komputer yang tersinkron akan muncul di sini.</p>
+        `;
+      } else if (isTrashView()) {
+        elements.emptyState.innerHTML = `
+          <strong>Sampah kosong</strong>
+          <p>Item yang dipindahkan ke sampah akan dihapus selamanya setelah 30 hari.</p>
+        `;
+      } else {
+        elements.emptyState.innerHTML = `
+          <strong>Folder ini kosong</strong>
+          <p>Upload file untuk mulai.</p>
+        `;
+      }
       return;
     }
 
     renderFolderCards(visibleItems);
 
     if (state.viewMode === "grid") {
-      elements.fileList.innerHTML = visibleItems.map((item) => `
+      elements.fileList.innerHTML = fileItems.map((item) => `
         <article class="file-card ${selectedSet.has(getItemKey(item)) ? "is-selected" : ""}" data-key="${escapeHtml(getItemKey(item))}">
-          <div class="file-card-main">
-            <input class="file-select" type="checkbox" data-key="${escapeHtml(getItemKey(item))}" ${selectedSet.has(getItemKey(item)) ? "checked" : ""}>
-            <div class="file-icon">${escapeHtml(getIconLabel(item))}</div>
+          <div class="drive-card-titlebar">
+            <div class="file-icon ${escapeHtml(getItemIconClass(item))}" aria-hidden="true">${escapeHtml(getIconLabel(item))}</div>
             <div class="file-name">
               <strong>${escapeHtml(item.name)}</strong>
-              <span title="${escapeHtml(getItemLocationLabel(item))}">${escapeHtml(getItemLocationLabel(item))}</span>
             </div>
+            <button type="button" class="file-kebab" data-action="context" data-key="${escapeHtml(getItemKey(item))}" aria-label="Menu ${escapeHtml(item.name)}">...</button>
           </div>
-          <div class="file-meta">${escapeHtml(item.kind === "folder" ? "Folder" : item.category || "File")} | ${escapeHtml(item.size_label || (item.kind === "folder" ? "-" : formatBytes(item.size)))}</div>
-          <div class="file-meta">${escapeHtml(formatDate(item.updatedAt || item.updated_at))}</div>
-          <div class="file-actions">${buildRowActions(item)}</div>
+          <button type="button" class="file-card-preview" data-action="open" data-key="${escapeHtml(getItemKey(item))}">
+            <span class="file-preview-mark ${escapeHtml(getItemIconClass(item))}">${escapeHtml(getPreviewLabel(item))}</span>
+          </button>
+          <div class="file-card-foot">
+            <span title="${escapeHtml(getItemLocationLabel(item))}">${escapeHtml(getItemLocationLabel(item))}</span>
+            <input class="file-select" type="checkbox" data-key="${escapeHtml(getItemKey(item))}" aria-label="Pilih ${escapeHtml(item.name)}" ${selectedSet.has(getItemKey(item)) ? "checked" : ""}>
+          </div>
         </article>
       `).join("");
       return;
@@ -596,7 +652,7 @@
       <article class="file-row ${selectedSet.has(getItemKey(item)) ? "is-selected" : ""}" data-key="${escapeHtml(getItemKey(item))}">
         <div class="file-main">
           <input class="file-select" type="checkbox" data-key="${escapeHtml(getItemKey(item))}" ${selectedSet.has(getItemKey(item)) ? "checked" : ""}>
-          <div class="file-icon">${escapeHtml(getIconLabel(item))}</div>
+          <div class="file-icon ${escapeHtml(getItemIconClass(item))}" aria-hidden="true">${escapeHtml(getIconLabel(item))}</div>
           <div class="file-name">
             <strong>${escapeHtml(item.name)}</strong>
             <span title="${escapeHtml(getItemLocationLabel(item))}">${escapeHtml(getItemLocationLabel(item))}</span>
@@ -642,25 +698,25 @@
     elements.restoreBtn.classList.toggle("hidden", !isTrashView());
     elements.emptyTrashBtn.classList.toggle("hidden", !isTrashView());
     elements.emptyTrashBtn.disabled = !isTrashView() || Number(state.stats.trashCount || state.stats.trash_count || 0) === 0;
-    elements.shortcutBtn.textContent = allSelectedAreShortcuts ? "Hapus Shortcut" : "Shortcut ke Folder";
+    elements.shortcutBtn.textContent = allSelectedAreShortcuts ? "Hapus pintasan" : "Pintasan";
 
     elements.selectionBar.classList.toggle("hidden", selectedItems.length === 0);
     elements.selectionBarTitle.textContent = selectedItems.length === 1
       ? selectedItems[0].name
       : `${numberFormatter.format(selectedItems.length)} item dipilih`;
     elements.selectionBarSubtitle.textContent = isTrashView()
-      ? "Gunakan restore atau hapus permanen untuk item di trash."
+      ? "Gunakan pulihkan atau hapus permanen untuk item di sampah."
       : selectedItems.some((item) => isExternalSharedItem(item))
-        ? "Item shared dari user lain hanya bisa dibuka atau diunduh."
+        ? "Item dari user lain hanya bisa dibuka atau diunduh."
         : selectedItems.some((item) => item.shortcut)
-        ? "Shortcut bisa dibuka, dibagikan, atau dihapus dari daftar."
-        : "Kelola item terpilih tanpa perlu kembali ke toolbar utama.";
+        ? "Pintasan bisa dibuka, dibagikan, atau dihapus dari daftar."
+        : "Aksi cepat item terpilih.";
     elements.selectionOpenBtn.disabled = !canOpen;
     elements.selectionDownloadBtn.disabled = !canDownload;
     elements.selectionStarBtn.disabled = isTrashView() || selectedItems.length === 0 || selectedItems.some((item) => isExternalSharedItem(item));
     elements.selectionShareBtn.disabled = !canShare;
     elements.selectionShortcutBtn.disabled = !canShortcut && !selectedItems.every((item) => item.shortcut);
-    elements.selectionShortcutBtn.textContent = allSelectedAreShortcuts ? "Hapus Shortcut" : "Shortcut ke Folder";
+    elements.selectionShortcutBtn.textContent = allSelectedAreShortcuts ? "Hapus pintasan" : "Pintasan";
     elements.selectionMoveBtn.disabled = !canMove;
     elements.selectionRenameBtn.disabled = !canRename;
     elements.selectionRestoreBtn.disabled = !canRestore;
@@ -684,20 +740,24 @@
     renderSelectionState();
     renderFileList();
 
-    elements.contextOpenBtn.textContent = item.kind === "folder" ? "Buka Folder" : "Buka";
-    elements.contextStarBtn.textContent = item.starred ? "Lepas Starred" : "Tambahkan Starred";
-    elements.contextShareBtn.textContent = item.shortcut ? "Shortcut" : (isExternalSharedItem(item) ? "Read only" : (item.shared ? "Kelola Shared" : "Bagikan"));
-    elements.contextShortcutBtn.textContent = item.shortcut ? "Hapus Shortcut" : "Shortcut Cepat";
+    elements.contextOpenBtn.textContent = item.kind === "folder" ? "Buka" : "Buka dengan";
+    elements.contextStarBtn.textContent = item.starred ? "Hapus dari Berbintang" : "Tambahkan ke Berbintang";
+    elements.contextShareBtn.textContent = item.shortcut ? "Pintasan" : (isExternalSharedItem(item) ? "Hanya lihat" : (item.shared ? "Kelola akses" : "Bagikan"));
+    elements.contextShortcutBtn.textContent = item.shortcut ? "Hapus pintasan" : "Buat pintasan";
+    elements.contextShortcutTargetBtn.textContent = item.shortcut ? "Pintasan aktif" : "Atur";
+    elements.contextMoveBtn.textContent = "Pindahkan";
+    elements.contextRenameBtn.textContent = "Ganti nama";
+    elements.contextDownloadBtn.textContent = "Download";
     elements.contextStarBtn.disabled = isExternalSharedItem(item);
     elements.contextMoveBtn.disabled = item.shortcut || isTrashView() || isExternalSharedItem(item);
     elements.contextRenameBtn.disabled = item.shortcut || isTrashView() || isExternalSharedItem(item);
     elements.contextShortcutTargetBtn.disabled = item.shortcut || isTrashView() || isExternalSharedItem(item);
     elements.contextShareBtn.disabled = item.shortcut || !canManageShareItem(item);
     elements.contextRestoreBtn.classList.toggle("hidden", !isTrashView());
-    elements.contextDeleteBtn.textContent = isTrashView() ? "Hapus Permanen" : (item.shortcut ? "Hapus Shortcut" : "Delete");
+    elements.contextDeleteBtn.textContent = isTrashView() ? "Hapus permanen" : (item.shortcut ? "Hapus pintasan" : "Pindahkan ke sampah");
 
-    const menuWidth = 240;
-    const menuHeight = 360;
+    const menuWidth = 320;
+    const menuHeight = 440;
     const left = Math.max(12, Math.min(x, window.innerWidth - menuWidth - 12));
     const top = Math.max(12, Math.min(y, window.innerHeight - menuHeight - 12));
     elements.contextMenu.style.left = `${left}px`;
@@ -714,7 +774,7 @@
     container.innerHTML = items.map((item) => `
       <button type="button" class="home-item-btn" data-key="${escapeHtml(getItemKey(item))}">
         <div class="home-item-copy">
-          <strong>${escapeHtml(item.name || "My Drive")}</strong>
+          <strong>${escapeHtml(item.name || "Drive Saya")}</strong>
           <span title="${escapeHtml(getItemLocationLabel(item))}">${escapeHtml(getItemLocationLabel(item))}</span>
         </div>
         <span class="home-item-meta">${escapeHtml(metaBuilder(item))}</span>
@@ -750,16 +810,16 @@
     renderHomePanelItems(
       elements.homeSharedList,
       state.homeData.sharedItems,
-      "Belum ada item yang ditandai shared.",
-      (item) => item.kind === "folder" ? "Folder shared" : item.size_label || formatBytes(item.size)
+      "Belum ada item yang dibagikan.",
+      (item) => item.kind === "folder" ? "Folder dibagikan" : item.size_label || formatBytes(item.size)
     );
     renderHomePanelItems(
       elements.homeShortcutList,
       state.homeData.shortcutItems,
-      "Belum ada shortcut aktif untuk file atau folder penting.",
+      "Belum ada pintasan aktif untuk file atau folder penting.",
       (item) => {
-        const parentPath = getShortcutParentPath(item) || "My Drive";
-        return item.shortcut ? `Shortcut di ${parentPath}` : "Akses cepat";
+        const parentPath = getShortcutParentPath(item) || "Drive Saya";
+        return item.shortcut ? `Pintasan di ${parentPath}` : "Akses cepat";
       }
     );
   }
@@ -799,7 +859,7 @@
           <div class="queue-item-head">
             <div class="queue-item-copy">
               <strong>${escapeHtml(task.name)}</strong>
-              <span>${escapeHtml(task.path || "My Drive")} | ${escapeHtml(formatBytes(task.size))}</span>
+              <span>${escapeHtml(task.path || "Drive Saya")} | ${escapeHtml(formatBytes(task.size))}</span>
             </div>
             <span class="queue-badge ${badgeClass}">${statusLabel}</span>
           </div>
@@ -815,6 +875,7 @@
 
   function renderAll() {
     syncNavState();
+    syncViewModeButtons();
     renderStats();
     renderActivity();
     renderHeader();
@@ -860,6 +921,12 @@
       payload = await requestJson(endpoints.shortcuts);
     } else if (state.section === "all") {
       payload = await requestJson(endpoints.index);
+    } else if (state.section === "spam" || state.section === "computer") {
+      payload = {
+        items: [],
+        breadcrumbs: [{ label: getCurrentSectionLabel(), path: "" }],
+        summary: { fileCount: 0, folderCount: 0 }
+      };
     } else if (state.section === "trash") {
       payload = await requestJson(endpoints.trash);
     } else {
@@ -918,36 +985,12 @@
         label: ""
       };
     }
-    if (section === "home") {
+    if (["home", "drive", "computer", "recent", "starred", "shared", "shortcuts", "all", "trash", "spam"].includes(section)) {
       state.currentPath = "";
     }
-    if (section === "drive" && !state.currentPath) {
-      state.currentPath = "";
-    }
+    state.viewMode = section === "all" ? "list" : "grid";
     clearSelection();
     refreshWorkspace().catch(handleError);
-  }
-
-  function applyQuickStorageAction(action) {
-    const normalizedAction = String(action || "").trim().toLowerCase();
-    if (normalizedAction === "candidate") {
-      state.search = "kandidat";
-      elements.searchInput.value = state.search;
-      setSection("all");
-      showFeedback("Menampilkan arsip yang cocok dengan kata kandidat.");
-      return;
-    }
-    if (normalizedAction === "txt") {
-      state.search = ".txt";
-      elements.searchInput.value = state.search;
-      setSection("all");
-      showFeedback("Menampilkan file TXT yang mudah dibaca HR.");
-      return;
-    }
-    state.search = "";
-    elements.searchInput.value = "";
-    setSection("recent");
-    showFeedback("Menampilkan arsip terbaru untuk dicek hari ini.");
   }
 
   function navigateTo(pathValue) {
@@ -1082,7 +1125,7 @@
     elements.shareDialogSelectedCount.textContent = `${selectedSet.size} user`;
     elements.shareDialogSubmitButton.textContent = state.shareDialog.isSubmitting
       ? "Menyimpan..."
-      : (selectedSet.size ? "Simpan Shared" : "Cabut Shared");
+      : (selectedSet.size ? "Simpan akses" : "Cabut akses");
     elements.shareDialogSubmitButton.disabled = state.shareDialog.isSubmitting;
 
     if (!visibleRecipients.length) {
@@ -1165,7 +1208,7 @@
       showFeedback(
         selectedCount
           ? `${state.shareDialog.targets.length} item dibagikan ke ${selectedCount} user.`
-          : `Akses shared untuk ${state.shareDialog.targets.length} item dicabut.`
+          : `Akses berbagi untuk ${state.shareDialog.targets.length} item dicabut.`
       );
       clearSelection();
       await refreshWorkspace();
@@ -1176,103 +1219,11 @@
     }
   }
 
-  function closeActionDialog(payload = null) {
-    const resolver = actionDialogResolver;
-    actionDialogResolver = null;
-    if (elements.actionDialog?.open) {
-      elements.actionDialog.close();
-    } else {
-      elements.actionDialog?.removeAttribute("open");
-    }
-    if (resolver) {
-      resolver(payload);
-    }
-  }
-
-  function renderActionDialogItems(items = []) {
-    if (!elements.actionDialogList) return;
-    const safeItems = Array.isArray(items) ? items : [];
-    if (!safeItems.length) {
-      elements.actionDialogList.innerHTML = "";
-      elements.actionDialogList.hidden = true;
-      return;
-    }
-    elements.actionDialogList.hidden = false;
-    elements.actionDialogList.innerHTML = safeItems.slice(0, 8).map((item) => `
-      <div class="sms-action-dialog-item">
-        <strong>${escapeHtml(item.name || item.path || "Item")}</strong>
-        <span>${escapeHtml(item.kind === "folder" ? "Folder" : item.category || "File")}</span>
-      </div>
-    `).join("") + (
-      safeItems.length > 8
-        ? `<div class="sms-action-dialog-more">+${safeItems.length - 8} item lain</div>`
-        : ""
-    );
-  }
-
-  function openActionDialog(options = {}) {
-    const dialog = elements.actionDialog;
-    if (!dialog) {
-      showFeedback("Dialog aksi belum siap. Refresh halaman lalu coba lagi.", "error");
-      return Promise.resolve(null);
-    }
-
-    const requiresInput = Boolean(options.inputLabel);
-    elements.actionDialogTitle.textContent = options.title || "Konfirmasi Aksi";
-    elements.actionDialogSummary.textContent = options.summary || "Periksa detail aksi sebelum dilanjutkan.";
-    elements.actionInputWrap.hidden = !requiresInput;
-    elements.actionInputLabel.textContent = options.inputLabel || "Nama";
-    elements.actionInput.placeholder = options.inputPlaceholder || "";
-    elements.actionInput.value = options.inputValue || "";
-    elements.actionInputHelper.textContent = options.helper || "Pastikan data sudah benar sebelum lanjut.";
-    elements.actionDialogSubmitButton.textContent = options.confirmLabel || "Lanjutkan";
-    elements.actionDialogSubmitButton.classList.toggle("action-btn-danger", Boolean(options.danger));
-    elements.actionDialogSubmitButton.classList.toggle("action-btn-primary", !options.danger);
-    renderActionDialogItems(options.items || []);
-
-    if (typeof dialog.showModal === "function") {
-      dialog.showModal();
-    } else {
-      dialog.setAttribute("open", "open");
-    }
-    window.requestAnimationFrame(() => {
-      if (requiresInput) {
-        elements.actionInput.focus();
-        elements.actionInput.select();
-      } else {
-        elements.actionDialogSubmitButton.focus();
-      }
-    });
-
-    return new Promise((resolve) => {
-      actionDialogResolver = resolve;
-    });
-  }
-
-  function submitActionDialog() {
-    const inputVisible = !elements.actionInputWrap.hidden;
-    const value = String(elements.actionInput.value || "").trim();
-    if (inputVisible && !value) {
-      elements.actionInput.focus();
-      elements.actionInputHelper.textContent = "Field ini wajib diisi.";
-      return;
-    }
-    closeActionDialog({ value });
-  }
-
   async function createFolder() {
     if (!canMutateCurrentLocation()) {
-      throw new Error("Folder baru hanya bisa dibuat di My Drive atau folder aktif.");
+      throw new Error("Folder baru hanya bisa dibuat di Drive Saya atau folder aktif.");
     }
-    const result = await openActionDialog({
-      title: "Folder Baru",
-      summary: `Buat folder di ${state.currentPath || "My Drive"}.`,
-      inputLabel: "Nama folder",
-      inputPlaceholder: "Contoh: Recruitment Mei",
-      helper: "Pakai nama pendek yang mudah dicari lagi.",
-      confirmLabel: "Buat Folder"
-    });
-    const name = result?.value || "";
+    const name = window.prompt("Nama folder baru:");
     if (!name) return;
     await requestJson(endpoints.folder, {
       method: "POST",
@@ -1297,13 +1248,13 @@
     const selectedPath = state.moveDialog.destinationPath || "";
     const selectedItems = getSelectedItems();
     const isShortcutMode = state.moveDialog.mode === "shortcut";
-    elements.moveDialogTitle.textContent = isShortcutMode ? "Buat Shortcut" : "Pindahkan Item";
-    elements.moveDialogSelectedPath.textContent = selectedPath || "My Drive";
+    elements.moveDialogTitle.textContent = isShortcutMode ? "Buat pintasan" : "Pindahkan Item";
+    elements.moveDialogSelectedPath.textContent = selectedPath || "Drive Saya";
     elements.moveDialogTargetSummary.textContent = isShortcutMode
       ? (
         selectedItems.length === 1
-          ? `Buat shortcut ${selectedItems[0].name} dan tempatkan di folder tujuan.`
-          : `Buat ${selectedItems.length} shortcut dan tempatkan di folder tujuan.`
+          ? `Buat pintasan ${selectedItems[0].name} dan tempatkan di folder tujuan.`
+          : `Buat ${selectedItems.length} pintasan dan tempatkan di folder tujuan.`
       )
       : (
         selectedItems.length === 1
@@ -1312,7 +1263,7 @@
       );
     elements.moveDialogSubmitButton.textContent = state.moveDialog.isSubmitting
       ? (isShortcutMode ? "Membuat..." : "Memindahkan...")
-      : (isShortcutMode ? "Buat Shortcut" : "Pindahkan");
+      : (isShortcutMode ? "Buat pintasan" : "Pindahkan");
     elements.moveDialogSubmitButton.disabled = state.moveDialog.isSubmitting;
 
     if (!visibleItems.length) {
@@ -1329,8 +1280,8 @@
           data-path="${escapeHtml(itemPath)}"
         >
           <div class="move-dialog-item-copy">
-            <strong>${escapeHtml(item.name || "My Drive")}</strong>
-            <span class="move-dialog-item-path">${escapeHtml(itemPath || "My Drive")}</span>
+            <strong>${escapeHtml(item.name || "Drive Saya")}</strong>
+            <span class="move-dialog-item-path">${escapeHtml(itemPath || "Drive Saya")}</span>
           </div>
           <span class="move-dialog-item-badge">${itemPath === selectedPath ? "Dipilih" : "Pilih"}</span>
         </button>
@@ -1342,15 +1293,15 @@
     const isShortcutMode = mode === "shortcut";
     const selectedItems = getSelectedItems().filter((item) => !item.shortcut);
     if (!selectedItems.length) {
-      throw new Error(isShortcutMode ? "Pilih item yang ingin dibuatkan shortcut." : "Pilih item yang ingin dipindahkan.");
+      throw new Error(isShortcutMode ? "Pilih item yang ingin dibuatkan pintasan." : "Pilih item yang ingin dipindahkan.");
     }
     if (isTrashView()) {
-      throw new Error(isShortcutMode ? "Item di trash tidak bisa dibuatkan shortcut." : "Item di trash tidak memakai fitur pindah. Gunakan restore.");
+      throw new Error(isShortcutMode ? "Item di sampah tidak bisa dibuatkan pintasan." : "Item di sampah tidak memakai fitur pindah. Gunakan pulihkan.");
     }
     const payload = await requestJson(endpoints.index);
     const folderItems = Array.isArray(payload.items) ? payload.items.filter((item) => item.kind === "folder") : [];
     state.moveDialog.mode = mode;
-    state.moveDialog.items = [{ name: "My Drive", path: "" }, ...folderItems];
+    state.moveDialog.items = [{ name: "Drive Saya", path: "" }, ...folderItems];
     state.moveDialog.destinationPath = state.currentPath || "";
     state.moveDialog.search = "";
     state.moveDialog.isSubmitting = false;
@@ -1372,7 +1323,7 @@
   async function submitMoveSelection() {
     const selectedItems = getSelectedItems().filter((item) => !item.shortcut);
     if (!selectedItems.length) {
-      throw new Error(state.moveDialog.mode === "shortcut" ? "Pilih item untuk shortcut." : "Pilih item yang ingin dipindahkan.");
+      throw new Error(state.moveDialog.mode === "shortcut" ? "Pilih item untuk pintasan." : "Pilih item yang ingin dipindahkan.");
     }
     const actionMode = state.moveDialog.mode;
     state.moveDialog.isSubmitting = true;
@@ -1402,8 +1353,8 @@
         actionMode === "shortcut"
           ? (
             selectedItems.length === 1
-              ? `Shortcut ${selectedItems[0].name} berhasil dibuat.`
-              : `${selectedItems.length} shortcut berhasil dibuat.`
+              ? `Pintasan ${selectedItems[0].name} berhasil dibuat.`
+              : `${selectedItems.length} pintasan berhasil dibuat.`
           )
           : (
             selectedItems.length === 1
@@ -1423,7 +1374,7 @@
   async function toggleStarred(item) {
     if (!item || !getItemResolvedPath(item)) return;
     if (isExternalSharedItem(item)) {
-      throw new Error("Item shared dari user lain tidak bisa diubah status starred-nya dari sini.");
+      throw new Error("Item dari user lain tidak bisa diubah status berbintangnya dari sini.");
     }
     const shouldStar = !item.starred;
     await requestJson(endpoints.starred, {
@@ -1436,8 +1387,8 @@
     });
     showFeedback(
       shouldStar
-        ? `${item.name} ditambahkan ke Starred.`
-        : `${item.name} dihapus dari Starred.`
+        ? `${item.name} ditambahkan ke Berbintang.`
+        : `${item.name} dihapus dari Berbintang.`
     );
     await refreshWorkspace();
   }
@@ -1445,7 +1396,7 @@
   async function toggleShared(item) {
     if (!item) return;
     if (!canManageShareItem(item)) {
-      throw new Error("Item shared dari user lain hanya bisa dilihat, tidak bisa diatur ulang.");
+      throw new Error("Item dari user lain hanya bisa dilihat, tidak bisa diatur ulang.");
     }
     await openShareDialog([item]);
   }
@@ -1453,7 +1404,7 @@
   async function toggleShortcut(item) {
     if (!item) return;
     if (isExternalSharedItem(item)) {
-      throw new Error("Item shared dari user lain tidak bisa dibuatkan shortcut langsung.");
+      throw new Error("Item dari user lain tidak bisa dibuatkan pintasan langsung.");
     }
     if (item.shortcut) {
       await requestJson(endpoints.shortcuts, {
@@ -1461,7 +1412,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: [item.shortcutId || item.shortcut_id] })
       });
-      showFeedback(`Shortcut ${item.name} dihapus.`);
+      showFeedback(`Pintasan ${item.name} dihapus.`);
       await refreshWorkspace();
       return;
     }
@@ -1475,7 +1426,7 @@
         parent_path: state.currentPath || ""
       })
     });
-    showFeedback(`Shortcut ${item.name} berhasil dibuat.`);
+    showFeedback(`Pintasan ${item.name} berhasil dibuat.`);
     await refreshWorkspace();
   }
 
@@ -1486,18 +1437,9 @@
     }
     const item = selected[0];
     if (item.shortcut) {
-      throw new Error("Rename target asli dilakukan dari lokasi file aslinya, bukan dari view shortcuts.");
+      throw new Error("Ganti nama target asli dilakukan dari lokasi file aslinya, bukan dari view pintasan.");
     }
-    const result = await openActionDialog({
-      title: "Rename Item",
-      summary: `Ubah nama ${item.kind === "folder" ? "folder" : "file"} "${item.name || "-"}".`,
-      inputLabel: "Nama baru",
-      inputValue: item.name || "",
-      inputPlaceholder: "Nama baru",
-      helper: "Nama baru tetap memakai lokasi folder yang sama.",
-      confirmLabel: "Simpan Nama"
-    });
-    const newName = result?.value || "";
+    const newName = window.prompt("Nama baru:", item.name || "");
     if (!newName || newName === item.name) return;
     await requestJson(endpoints.rename, {
       method: "POST",
@@ -1511,24 +1453,18 @@
   async function deleteSelection() {
     const selected = getSelectedItems();
     if (!selected.length) {
-      throw new Error(isTrashView() ? "Pilih item trash yang ingin dihapus." : "Pilih item yang ingin dipindahkan ke trash.");
+      throw new Error(isTrashView() ? "Pilih item sampah yang ingin dihapus." : "Pilih item yang ingin dipindahkan ke sampah.");
     }
 
     if (isTrashView()) {
-      const confirmed = await openActionDialog({
-        title: "Hapus Permanen",
-        summary: `${selected.length} item akan dihapus permanen dari trash dan tidak bisa direstore dari sistem.`,
-        items: selected,
-        confirmLabel: "Hapus Permanen",
-        danger: true
-      });
+      const confirmed = window.confirm(`Hapus permanen ${selected.length} item dari sampah?`);
       if (!confirmed) return;
       await requestJson(endpoints.deleteTrash, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: selected.map((item) => item.id) })
       });
-      showFeedback(`${selected.length} item dihapus permanen dari trash.`);
+      showFeedback(`${selected.length} item dihapus permanen dari sampah.`);
       clearSelection();
       await refreshWorkspace();
       return;
@@ -1537,34 +1473,24 @@
     const shortcutOnlyItems = selected.filter((item) => item.shortcut);
     const realItems = selected.filter((item) => !item.shortcut);
     if (shortcutOnlyItems.length && !realItems.length) {
-      const confirmedShortcutDelete = await openActionDialog({
-        title: "Hapus Shortcut",
-        summary: `${shortcutOnlyItems.length} shortcut akan dihapus dari daftar. File asli tetap aman.`,
-        items: shortcutOnlyItems,
-        confirmLabel: "Hapus Shortcut",
-        danger: true
-      });
+      const confirmedShortcutDelete = window.confirm(`Hapus ${shortcutOnlyItems.length} pintasan dari daftar?`);
       if (!confirmedShortcutDelete) return;
       await requestJson(endpoints.shortcuts, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: shortcutOnlyItems.map((item) => item.shortcutId || item.shortcut_id) })
       });
-      showFeedback(`${shortcutOnlyItems.length} shortcut dihapus dari daftar.`);
+      showFeedback(`${shortcutOnlyItems.length} pintasan dihapus dari daftar.`);
       clearSelection();
       await refreshWorkspace();
       return;
     }
 
-    const confirmed = await openActionDialog({
-      title: "Pindahkan ke Trash",
-      summary: shortcutOnlyItems.length
-        ? `${realItems.length} item akan dipindahkan ke trash dan ${shortcutOnlyItems.length} shortcut akan dihapus dari daftar.`
-        : `${realItems.length} item akan dipindahkan ke trash.`,
-      items: selected,
-      confirmLabel: "Pindahkan ke Trash",
-      danger: true
-    });
+    const confirmed = window.confirm(
+      shortcutOnlyItems.length
+        ? `Pindahkan ${realItems.length} item ke sampah dan hapus ${shortcutOnlyItems.length} pintasan?`
+        : `Pindahkan ${realItems.length} item ke sampah?`
+    );
     if (!confirmed) return;
     if (shortcutOnlyItems.length) {
       await requestJson(endpoints.shortcuts, {
@@ -1580,8 +1506,8 @@
     });
     showFeedback(
       shortcutOnlyItems.length
-        ? `${realItems.length} item dipindahkan ke trash dan ${shortcutOnlyItems.length} shortcut dihapus.`
-        : `${realItems.length} item dipindahkan ke trash.`
+        ? `${realItems.length} item dipindahkan ke sampah dan ${shortcutOnlyItems.length} pintasan dihapus.`
+        : `${realItems.length} item dipindahkan ke sampah.`
     );
     clearSelection();
     await refreshWorkspace();
@@ -1590,7 +1516,7 @@
   async function restoreSelection() {
     const selected = getSelectedItems();
     if (!selected.length || !isTrashView()) {
-      throw new Error("Pilih item trash yang ingin dipulihkan.");
+      throw new Error("Pilih item sampah yang ingin dipulihkan.");
     }
     await requestJson(endpoints.restore, {
       method: "POST",
@@ -1604,17 +1530,12 @@
 
   async function emptyTrash() {
     if (!isTrashView()) {
-      throw new Error("Fitur ini hanya tersedia di Trash.");
+      throw new Error("Fitur ini hanya tersedia di Sampah.");
     }
-    const confirmed = await openActionDialog({
-      title: "Kosongkan Trash",
-      summary: "Semua item di trash akan dihapus permanen dan tidak bisa direstore dari sistem.",
-      confirmLabel: "Kosongkan Trash",
-      danger: true
-    });
+    const confirmed = window.confirm("Kosongkan seluruh isi sampah?");
     if (!confirmed) return;
     await requestJson(endpoints.emptyTrash, { method: "POST" });
-    showFeedback("Trash berhasil dikosongkan.");
+    showFeedback("Sampah berhasil dikosongkan.");
     clearSelection();
     await refreshWorkspace();
   }
@@ -1622,7 +1543,7 @@
   function queueUploadFiles(files) {
     if (!files?.length) return;
     if (!canMutateCurrentLocation()) {
-      throw new Error("Upload hanya tersedia saat berada di My Drive atau folder aktif.");
+      throw new Error("Upload hanya tersedia saat berada di Drive Saya atau folder aktif.");
     }
     Array.from(files).forEach((file) => {
       state.uploadQueue.push({
@@ -1726,6 +1647,9 @@
         const action = actionButton.dataset.action;
         if (action === "open") {
           openItem(item).catch(handleError);
+        } else if (action === "context") {
+          const rect = actionButton.getBoundingClientRect();
+          openContextMenu(item, rect.left, rect.bottom + 6);
         } else if (action === "download") {
           downloadItem(item);
         } else if (action === "toggle-star") {
@@ -1772,17 +1696,24 @@
     });
 
     elements.folderCards.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-action='open']");
+      const button = event.target.closest("[data-action]");
       if (!button) return;
       const item = findItemByKey(button.dataset.key);
-      openItem(item).catch(handleError);
+      if (button.dataset.action === "context") {
+        const rect = button.getBoundingClientRect();
+        openContextMenu(item, rect.left, rect.bottom + 6);
+        return;
+      }
+      if (button.dataset.action === "open") {
+        openItem(item).catch(handleError);
+      }
     });
 
     elements.folderCards.addEventListener("contextmenu", (event) => {
-      const button = event.target.closest("[data-action='open']");
-      if (!button) return;
+      const card = event.target.closest(".folder-card");
+      if (!card) return;
       event.preventDefault();
-      const item = findItemByKey(button.dataset.key);
+      const item = findItemByKey(card.querySelector("[data-key]")?.dataset.key || "");
       openContextMenu(item, event.clientX, event.clientY);
     });
   }
@@ -1801,15 +1732,14 @@
     });
     elements.navHome.addEventListener("click", () => setSection("home"));
     elements.navDrive.addEventListener("click", () => setSection("drive"));
+    elements.navComputer?.addEventListener("click", () => setSection("computer"));
     elements.navRecent.addEventListener("click", () => setSection("recent"));
     elements.navStarred.addEventListener("click", () => setSection("starred"));
     elements.navShared.addEventListener("click", () => setSection("shared"));
     elements.navShortcuts.addEventListener("click", () => setSection("shortcuts"));
+    elements.navSpam?.addEventListener("click", () => setSection("spam"));
     elements.navAll.addEventListener("click", () => setSection("all"));
     elements.navTrash.addEventListener("click", () => setSection("trash"));
-    elements.quickActionButtons.forEach((button) => {
-      button.addEventListener("click", () => applyQuickStorageAction(button.dataset.smsQuickAction));
-    });
     elements.sidebarUpload.addEventListener("click", () => elements.fileInput.click());
     elements.uploadBtn.addEventListener("click", () => elements.fileInput.click());
     elements.folderBtn.addEventListener("click", () => createFolder().catch(handleError));
@@ -1830,14 +1760,14 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ids: shortcutItems.map((item) => item.shortcutId || item.shortcut_id) })
         }).then(() => {
-          showFeedback(`${shortcutItems.length} shortcut dihapus.`);
+          showFeedback(`${shortcutItems.length} pintasan dihapus.`);
           clearSelection();
           return refreshWorkspace();
         }).catch(handleError);
         return;
       }
       if (!getSelectedItems().filter((item) => !item.shortcut).length) {
-        handleError(new Error("Pilih item yang ingin dibuatkan shortcut."));
+        handleError(new Error("Pilih item yang ingin dibuatkan pintasan."));
         return;
       }
       openMoveDialog("shortcut").catch(handleError);
@@ -1874,7 +1804,7 @@
     elements.selectionStarBtn.addEventListener("click", () => {
       const selected = getSelectedItems();
       if (!selected.length) {
-        handleError(new Error("Pilih item untuk diatur status starred-nya."));
+        handleError(new Error("Pilih item untuk diatur status berbintangnya."));
         return;
       }
       const shouldStar = selected.some((item) => !item.starred);
@@ -1886,7 +1816,7 @@
           starred: shouldStar
         })
       }).then(() => {
-        showFeedback(shouldStar ? `${selected.length} item ditambahkan ke Starred.` : `${selected.length} item dihapus dari Starred.`);
+        showFeedback(shouldStar ? `${selected.length} item ditambahkan ke Berbintang.` : `${selected.length} item dihapus dari Berbintang.`);
         clearSelection();
         return refreshWorkspace();
       }).catch(handleError);
@@ -1966,22 +1896,6 @@
     elements.moveDialogCancelButton.addEventListener("click", closeMoveDialog);
     elements.moveDialogCloseButton.addEventListener("click", closeMoveDialog);
     elements.moveDialogSubmitButton.addEventListener("click", () => submitMoveSelection().catch(handleError));
-    elements.actionDialogCancelButton.addEventListener("click", () => closeActionDialog(null));
-    elements.actionDialogCloseButton.addEventListener("click", () => closeActionDialog(null));
-    elements.actionDialogSubmitButton.addEventListener("click", submitActionDialog);
-    elements.actionDialogForm.addEventListener("submit", (event) => {
-      event.preventDefault();
-      submitActionDialog();
-    });
-    elements.actionDialog.addEventListener("cancel", (event) => {
-      event.preventDefault();
-      closeActionDialog(null);
-    });
-    elements.actionDialog.addEventListener("close", () => {
-      if (actionDialogResolver) {
-        closeActionDialog(null);
-      }
-    });
     elements.contextOpenBtn.addEventListener("click", () => {
       const item = getContextMenuItem();
       closeContextMenu();

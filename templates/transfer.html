@@ -4,6 +4,7 @@
 {% block eyebrow %}Alur Transfer Gudang{% endblock %}
 {% block page_title %}Transfer Antar Gudang{% endblock %}
 {% block page_subtitle %}Susun perpindahan stok dengan pola pilih item lalu tambah ke daftar batch, supaya transfer banyak barang terasa konsisten dengan inbound dan outbound.{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
 
 {% block content %}
 <div class="wms-page-stack">
@@ -68,7 +69,6 @@
 
     <form method="POST" onsubmit="return handleTransferSubmit()">
         <input type="hidden" name="items_json" id="transferItemsJson">
-        <div id="transferFormFeedback" class="flash warning ops-inline-feedback" role="alert" hidden></div>
 
         <div class="form-grid ops-config-grid">
             <div>
@@ -190,7 +190,6 @@ const transferTo = document.getElementById("to_wh");
 const transferItemsJson = document.getElementById("transferItemsJson");
 const transferSubmitButton = document.getElementById("transferSubmitButton");
 const transferQueueBody = document.getElementById("transferQueueBody");
-const transferFormFeedback = document.getElementById("transferFormFeedback");
 const transferWarehouseWarn = document.getElementById("transferWarehouseWarn");
 const transferDraftDisplay = document.getElementById("transferDraftDisplay");
 const transferDraftMeta = document.getElementById("transferDraftMeta");
@@ -219,35 +218,6 @@ const transferDraft = {
 };
 
 const transferItems = [];
-
-function escapeTransferHtml(value) {
-    return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-}
-
-function showTransferFeedback(message, type = "warning", focusTarget = null) {
-    if (!transferFormFeedback) return;
-    const tone = type === "success" ? "success" : type === "error" ? "danger" : "warning";
-    transferFormFeedback.textContent = message;
-    transferFormFeedback.className = `flash ${tone} ops-inline-feedback`;
-    transferFormFeedback.hidden = false;
-    if (type !== "success") {
-        transferFormFeedback.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-    if (focusTarget && typeof focusTarget.focus === "function") {
-        focusTarget.focus({ preventScroll: true });
-    }
-}
-
-function clearTransferFeedback() {
-    if (!transferFormFeedback) return;
-    transferFormFeedback.textContent = "";
-    transferFormFeedback.hidden = true;
-}
 
 function renderTransferWorkspaceSummary() {
     const count = transferItems.length;
@@ -474,45 +444,34 @@ function renderTransferQueue() {
         return;
     }
 
-    transferQueueBody.innerHTML = transferItems.map((item, index) => {
-        const sku = escapeTransferHtml(item.sku || "-");
-        const name = escapeTransferHtml(item.name || "-");
-        const variantLabel = escapeTransferHtml(item.variant_label || "Default");
-        const category = escapeTransferHtml(item.category || "-");
-        const gtin = escapeTransferHtml(item.gtin || "-");
-        const qty = Number(item.qty || 0);
-        const stock = Number(item.stock || 0);
-        return `
+    transferQueueBody.innerHTML = transferItems.map((item, index) => `
         <tr>
             <td class="mono">${index + 1}</td>
             <td>
-                <strong>${sku} - ${name}</strong>
-                <small class="helper-text">${variantLabel} | ${category} | GTIN ${gtin}</small>
+                <strong>${item.sku} - ${item.name}</strong>
+                <small class="helper-text">${item.variant_label} | ${item.category || "-"} | GTIN ${item.gtin || "-"}</small>
             </td>
-            <td><span class="badge ${stock <= 0 ? "red" : stock < 5 ? "orange" : "green"}">${stock}</span></td>
+            <td><span class="badge ${item.stock <= 0 ? "red" : item.stock < 5 ? "orange" : "green"}">${item.stock}</span></td>
             <td>
-                <span class="mono">${qty}</span>
-                ${qty > stock ? '<small class="helper-text stock-empty">Qty melebihi stok gudang asal saat ini.</small>' : ''}
+                <span class="mono">${item.qty}</span>
+                ${item.qty > item.stock ? '<small class="helper-text stock-empty">Qty melebihi stok gudang asal saat ini.</small>' : ''}
             </td>
             <td>
                 <button type="button" class="ghost-button ops-remove-button" data-remove-index="${index}">Hapus</button>
             </td>
         </tr>
-        `;
-    }).join("");
+    `).join("");
     renderTransferWorkspaceSummary();
 }
 
 function addTransferItem() {
-    clearTransferFeedback();
-
     if (!transferDraft.product_id || !transferDraft.variant_id) {
-        showTransferFeedback("Pilih barang terlebih dahulu dari daftar item atau scan barcode.", "warning", transferDraftDisplay);
+        alert("Pilih barang terlebih dahulu.");
         return;
     }
 
     if (!validateTransferDraft()) {
-        showTransferFeedback("Qty transfer masih belum valid. Cek stok gudang asal dan jumlah yang diminta.", "warning", transferDraftQty);
+        alert("Qty transfer masih belum valid.");
         return;
     }
 
@@ -529,29 +488,23 @@ function addTransferItem() {
     });
 
     renderTransferQueue();
-    showTransferFeedback("Item masuk ke batch transfer.", "success");
     resetTransferDraft();
 }
 
 function handleTransferSubmit() {
-    clearTransferFeedback();
-
     if (!renderTransferWarehouseValidation()) {
-        showTransferFeedback("Gudang asal dan tujuan tidak boleh sama.", "warning", transferTo);
+        alert("Gudang asal dan tujuan tidak boleh sama.");
         return false;
     }
 
     if (!transferItems.length) {
-        showTransferFeedback("Tambahkan minimal satu item transfer sebelum diproses.", "warning", transferDraftDisplay);
+        alert("Tambahkan minimal satu item transfer.");
         return false;
     }
 
     for (const item of transferItems) {
         if (Number(item.qty) > Number(item.stock || 0)) {
-            showTransferFeedback(
-                `Qty transfer untuk ${item.sku || "-"} - ${item.name || "-"} melebihi stok gudang asal.`,
-                "warning"
-            );
+            alert(`Qty transfer untuk ${item.sku} - ${item.name} melebihi stok gudang asal.`);
             return false;
         }
     }

@@ -5,6 +5,7 @@
 {% block page_title %}Kasir{% endblock %}
 {% block page_subtitle %}{% endblock %}
 {% block page_content_class %}page-content-bleed{% endblock %}
+{% block body_class %}pos-page-wide{% endblock %}
 
 {% block page_actions %}{% endblock %}
 {% block page_header %}{% endblock %}
@@ -17,6 +18,34 @@ window.wmsPageFlags = Object.assign({}, window.wmsPageFlags || {}, {
 });
 </script>
 <style>
+body.pos-page-wide .layout {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+body.pos-page-wide .main {
+    padding: 24px 24px 32px;
+}
+
+body.pos-page-wide .page-content.page-content-bleed {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    max-width: none;
+    padding: 0;
+}
+
+body.pos-page-wide #posCheckoutRoot {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    justify-self: stretch;
+}
+
+body.pos-page-wide #posCheckoutRoot .pos-ipos-window {
+    width: 100%;
+    max-width: none;
+}
+
 .pos-ipos-bank-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -46,6 +75,10 @@ body .pos-ipos-refactor .pos-ipos-split-bank {
 }
 
 @media (max-width: 760px) {
+    body.pos-page-wide .main {
+        padding: 12px 12px 24px;
+    }
+
     body .pos-ipos-refactor .pos-ipos-split-row {
         grid-template-columns: 1fr;
     }
@@ -373,8 +406,19 @@ body .pos-ipos-refactor .pos-ipos-split-bank {
 {% endblock %}
 
 {% block extra_scripts %}
+<script id="posClientConfigData" type="application/json">
+{{ {
+    "autoPrintAfterCheckout": pos_auto_print_after_checkout,
+    "editingSale": editing_sale,
+    "splitPaymentMethods": payment_methods,
+    "debitBankOptions": pos_debit_bank_options,
+    "allowNegativeStockTemp": config.get("POS_ALLOW_NEGATIVE_STOCK_TEMP"),
+    "stringingProgressMinAmount": stringing_progress_min_amount|default(75000)
+}|tojson }}
+</script>
 <script>
-const posAutoPrintAfterCheckout = {{ "true" if pos_auto_print_after_checkout else "false" }};
+const posClientConfig = window.wmsReadJsonScript("posClientConfigData");
+const posAutoPrintAfterCheckout = Boolean(posClientConfig.autoPrintAfterCheckout);
 const posRuntimeUrl = new URL(window.location.href);
 const posDesktopSource = String(posRuntimeUrl.searchParams.get("source") || "");
 const posDesktopBridge = String(
@@ -385,7 +429,7 @@ const posCheckoutRoot = document.getElementById("posCheckoutRoot");
 const posWarehouseId = Number(posCheckoutRoot?.dataset?.warehouseId || 0);
 const posWarehouseName = String(posCheckoutRoot?.dataset?.warehouseName || "");
 const posSaleDate = String(posCheckoutRoot?.dataset?.saleDate || "");
-const posEditingSale = {{ editing_sale|tojson }};
+const posEditingSale = posClientConfig.editingSale || null;
 const posCart = [];
 const posDraft = {
     product_id: 0,
@@ -501,6 +545,8 @@ const posTaxType = document.getElementById("posTaxType");
 const posTaxInput = document.getElementById("posTaxInput");
 const posTaxValue = document.getElementById("posTaxValue");
 const posCheckoutButton = document.getElementById("posCheckoutButton");
+const posPaymentModal = document.getElementById("posPaymentModal");
+const posPaymentModalWindow = posPaymentModal?.querySelector(".pos-payment-modal-window") || null;
 const posCheckoutProgress = document.getElementById("posCheckoutProgress");
 const posCheckoutProgressText = document.getElementById("posCheckoutProgressText");
 const posSelectedCard = document.getElementById("posSelectedCard");
@@ -525,15 +571,22 @@ const posSplitPaymentPanel = document.getElementById("posSplitPaymentPanel");
 const posSplitPaymentRows = document.getElementById("posSplitPaymentRows");
 const posAddSplitPaymentRow = document.getElementById("posAddSplitPaymentRow");
 const posSplitPaymentSummary = document.getElementById("posSplitPaymentSummary");
-const POS_SPLIT_PAYMENT_METHODS = {{ payment_methods | tojson }};
-const POS_DEBIT_BANK_OPTIONS = {{ pos_debit_bank_options | tojson }};
+const posPaymentTotalMirrors = document.querySelectorAll("[data-pos-payment-total-mirror]");
+const posPaymentItemMirrors = document.querySelectorAll("[data-pos-payment-item-mirror]");
+const posPaymentChangeMirrors = document.querySelectorAll("[data-pos-payment-change-mirror]");
+const POS_SPLIT_PAYMENT_METHODS = Array.isArray(posClientConfig.splitPaymentMethods)
+    ? posClientConfig.splitPaymentMethods
+    : [];
+const POS_DEBIT_BANK_OPTIONS = Array.isArray(posClientConfig.debitBankOptions)
+    ? posClientConfig.debitBankOptions
+    : [];
 const posPaymentBankSummary = document.getElementById("posPaymentBankSummary");
 const posDebitBankModal = document.getElementById("posDebitBankModal");
 const posDebitBankTargetLabel = document.getElementById("posDebitBankTargetLabel");
 const posDebitBankCurrentLabel = document.getElementById("posDebitBankCurrentLabel");
 const posDebitBankCustomInput = document.getElementById("posDebitBankCustomInput");
 const posDebitBankApplyButton = document.getElementById("posDebitBankApplyButton");
-const posAllowNegativeStockTemp = {{ "true" if config.get("POS_ALLOW_NEGATIVE_STOCK_TEMP") else "false" }};
+const posAllowNegativeStockTemp = Boolean(posClientConfig.allowNegativeStockTemp);
 const posEditStockAllowanceState = new Map(
     Object.entries(posEditingSale?.stock_allowances || {}).map(([key, qty]) => [
         String(key || ""),
@@ -878,7 +931,7 @@ const posGrandTotalBox = posGrandTotal?.closest(".pos-ipos-totalbox") || null;
 const POS_QUICK_SEARCH_DEFAULT_SUMMARY = "Smart search aktif. Ketik nama, SKU, warna, atau kata gabungan. Beda spasi tetap bisa dibaca.";
 const POS_CUSTOMER_SEARCH_DEFAULT_SUMMARY = "Smart search member aktif. Ketik nama customer, nomor HP, atau kode member. Beda spasi tetap kebaca.";
 const POS_CASHIER_SEARCH_DEFAULT_SUMMARY = "Cari kasir/sales lebih cepat tanpa scroll panjang.";
-const POS_STRINGING_PROGRESS_MIN_AMOUNT = {{ stringing_progress_min_amount|default(75000)|tojson }};
+const POS_STRINGING_PROGRESS_MIN_AMOUNT = Number(posClientConfig.stringingProgressMinAmount || 75000);
 let posSearchTimer = null;
 let posQuickSearchTimer = null;
 let posKeypadTarget = "qty";
@@ -922,18 +975,6 @@ function escapeHtml(value) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
-}
-
-function notifyPosInline(message, target = null) {
-    const safeMessage = String(message || "Lengkapi data kasir terlebih dahulu.");
-    if (typeof window.showToast === "function") {
-        window.showToast(safeMessage);
-    } else {
-        console.warn(safeMessage);
-    }
-    if (target && typeof target.focus === "function") {
-        target.focus({ preventScroll: false });
-    }
 }
 
 function normalizePosDebitBankName(value) {
@@ -1033,7 +1074,8 @@ function closePosDebitBankModal() {
 function applyPosDebitBankSelection(bankName) {
     const resolvedBankName = normalizePosDebitBankName(bankName || posDebitBankCustomInput?.value || "");
     if (!resolvedBankName) {
-        notifyPosInline("Pilih nama bank debit dulu.", posDebitBankCustomInput);
+        alert("Pilih nama bank debit dulu.");
+        posDebitBankCustomInput?.focus();
         return;
     }
     if (posDebitBankState.modalMode === "split") {
@@ -1857,6 +1899,9 @@ function updatePosChangePreview() {
     if (posChangeAmountMirror) {
         posChangeAmountMirror.textContent = formatPosCurrency(changeAmount);
     }
+    posPaymentChangeMirrors.forEach((node) => {
+        node.textContent = formatPosCurrency(changeAmount);
+    });
     updatePosSplitPaymentSummary();
 }
 
@@ -2311,11 +2356,25 @@ function scheduleFitPosGrandTotalText(force = false) {
     });
 }
 
+function syncPosPaymentDockSummary(totals = null) {
+    const resolvedTotals = totals || getPosTotals();
+    const totalText = formatPosCurrency(resolvedTotals.grandTotal || 0);
+    const itemText = String(resolvedTotals.totalItems || 0);
+
+    posPaymentTotalMirrors.forEach((node) => {
+        node.textContent = totalText;
+    });
+    posPaymentItemMirrors.forEach((node) => {
+        node.textContent = itemText;
+    });
+}
+
 function renderPosCartSummary() {
     const totals = getPosTotals();
     posTotalItems.textContent = String(totals.totalItems);
     posCartBadge.textContent = `${totals.totalItems} item`;
     posGrandTotal.textContent = formatPosCurrency(totals.grandTotal);
+    syncPosPaymentDockSummary(totals);
     scheduleFitPosGrandTotalText();
     if (posSubtotalValue) {
         posSubtotalValue.textContent = formatPosCurrency(totals.subtotal);
@@ -2453,18 +2512,18 @@ function fillPosDraftFromItem(item) {
 
 function validatePosDraft(options = {}) {
     if (!posDraft.product_id || !posDraft.variant_id) {
-        notifyPosInline("Pilih barang dulu.", posQuickSearch || posCatalogOpenButton);
+        alert("Pilih barang dulu.");
         return false;
     }
 
     const qty = Number((options.qty ?? posDraftQty?.value) || 0);
     if (qty <= 0) {
-        notifyPosInline("Qty wajib lebih dari 0.", posDraftQty);
+        alert("Qty wajib lebih dari 0.");
         return false;
     }
 
     if (!posAllowNegativeStockTemp && qty > posDraft.stock) {
-        notifyPosInline(`Qty melebihi stok. Stok saat ini ${posDraft.stock}.`, posDraftQty);
+        alert(`Qty melebihi stok. Stok saat ini ${posDraft.stock}.`);
         return false;
     }
 
@@ -2485,7 +2544,7 @@ function addPosDraftToCart(options = {}) {
     if (existing) {
         const nextQty = Number(existing.qty) + qty;
         if (!posAllowNegativeStockTemp && nextQty > posDraft.stock) {
-            notifyPosInline(`Qty total melebihi stok. Maksimal ${posDraft.stock}.`, posQuickSearch || posCatalogOpenButton);
+            alert(`Qty total melebihi stok. Maksimal ${posDraft.stock}.`);
             return;
         }
         existing.qty = nextQty;
@@ -2743,7 +2802,7 @@ function applyPosEditingSaleToCart() {
 
 function checkoutPosTransaction() {
     if (!posCart.length) {
-        notifyPosInline("Keranjang masih kosong.", posQuickSearch || posCatalogOpenButton);
+        alert("Keranjang masih kosong.");
         return;
     }
 
@@ -2758,20 +2817,20 @@ function checkoutPosTransaction() {
     const splitMethodCount = new Set(splitPayments.map((row) => row.method)).size;
     if (isSplitPayment) {
         if (splitMethodCount < 2) {
-            notifyPosInline("Split transaksi minimal harus memakai 2 metode pembayaran yang berbeda.", posSplitPaymentPanel);
+            alert("Split transaksi minimal harus memakai 2 metode pembayaran yang berbeda.");
             return;
         }
         if (Math.abs(splitTotalAmount - totals.grandTotal) > 0.009) {
             if (splitTotalAmount < totals.grandTotal) {
-                notifyPosInline(`Total split pembayaran masih kurang ${formatPosCurrency(totals.grandTotal - splitTotalAmount)}.`, posSplitPaymentPanel);
+                alert(`Total split pembayaran masih kurang ${formatPosCurrency(totals.grandTotal - splitTotalAmount)}.`);
             } else {
-                notifyPosInline(`Total split pembayaran kelebihan ${formatPosCurrency(splitTotalAmount - totals.grandTotal)}.`, posSplitPaymentPanel);
+                alert(`Total split pembayaran kelebihan ${formatPosCurrency(splitTotalAmount - totals.grandTotal)}.`);
             }
             return;
         }
         const missingDebitSplit = splitPayments.find((row) => row.method === "debit" && !normalizePosDebitBankName(row.bank_name || ""));
         if (missingDebitSplit) {
-            notifyPosInline("Pilih nama bank untuk semua split debit dulu.", posSplitPaymentPanel);
+            alert("Pilih nama bank untuk semua split debit dulu.");
             const targetRow = (posSplitPaymentState.rows || []).find((row) => row.method === "debit" && !normalizePosDebitBankName(row.bank_name || ""));
             openPosDebitBankModal({ mode: "split", rowId: targetRow?.id || 0 });
             return;
@@ -2849,7 +2908,7 @@ function checkoutPosTransaction() {
         }
         const resolvedSaleDate = String(data.sale_date || posSaleDate || "");
         if (isEditingSale) {
-            notifyPosInline(`${data.message} No. Nota: ${data.receipt_no}`);
+            window.alert(`${data.message}\nNo. Nota: ${data.receipt_no}`);
             window.location.href = buildPosRuntimeUrl(
                 `/kasir/?warehouse=${encodeURIComponent(posWarehouseId)}&sale_date=${encodeURIComponent(resolvedSaleDate)}`
             );
@@ -2869,10 +2928,11 @@ function checkoutPosTransaction() {
         } else if (waStatus === "failed") {
             waInfoLine = `Status WA nota customer: gagal (${waError || "error tidak diketahui"}).`;
         }
-        const shouldPrintReceipt = Boolean(posAutoPrintAfterCheckout);
-        if (!shouldPrintReceipt) {
-            notifyPosInline(`${data.message} No. Nota: ${data.receipt_no}. ${waInfoLine} Cetak ulang bisa dibuka dari Log Penjualan.`);
-        }
+        const shouldPrintReceipt = posAutoPrintAfterCheckout
+            ? true
+            : window.confirm(
+                `${data.message}\nNo. Nota: ${data.receipt_no}\n${waInfoLine}\n\nCustomer minta nota cetak sekarang?`
+            );
         clearPendingPosCheckout();
         clearPosCheckoutDraft();
         if (shouldPrintReceipt && data.receipt_print_url) {
@@ -2884,7 +2944,7 @@ function checkoutPosTransaction() {
         );
     })
     .catch((error) => {
-        notifyPosInline(
+        alert(
             error.message
             || (isPosEditMode() ? "Edit transaksi gagal diproses." : "Checkout gagal diproses.")
         );
@@ -2902,118 +2962,6 @@ function checkoutPosTransaction() {
     });
 }
 
-let posVoidDialogResolve = null;
-
-function ensurePosVoidDialog() {
-    let dialog = document.getElementById("posVoidDialog");
-    if (dialog) {
-        return dialog;
-    }
-
-    dialog = document.createElement("div");
-    dialog.id = "posVoidDialog";
-    dialog.className = "picker-modal";
-    dialog.hidden = true;
-    dialog.innerHTML = `
-        <div class="picker-modal-backdrop" data-pos-void-cancel></div>
-        <div class="picker-modal-panel" role="dialog" aria-modal="true" aria-labelledby="posVoidDialogTitle">
-            <div class="section-title">
-                <div>
-                    <h2 id="posVoidDialogTitle">Void Barang</h2>
-                    <p id="posVoidDialogHelp">Isi qty yang akan divoid.</p>
-                </div>
-                <button type="button" class="ghost-button" data-pos-void-cancel>Tutup</button>
-            </div>
-            <div class="form-grid">
-                <div>
-                    <label for="posVoidQtyInput">Qty Void</label>
-                    <input type="number" id="posVoidQtyInput" min="1" step="1" inputmode="numeric">
-                    <small id="posVoidQtyHelp" class="helper-text">Maksimal mengikuti qty aktif item.</small>
-                </div>
-                <div>
-                    <label for="posVoidNoteInput">Catatan</label>
-                    <input type="text" id="posVoidNoteInput" placeholder="Opsional">
-                </div>
-            </div>
-            <div id="posVoidDialogError" class="helper-text stock-empty" role="alert" hidden></div>
-            <div class="split-actions picker-pagination">
-                <button type="button" class="danger-button" data-pos-void-submit>Proses Void</button>
-                <button type="button" class="ghost-button" data-pos-void-cancel>Batal</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(dialog);
-    dialog.querySelectorAll("[data-pos-void-cancel]").forEach((button) => {
-        button.addEventListener("click", () => closePosVoidDialog(null));
-    });
-    dialog.querySelector("[data-pos-void-submit]")?.addEventListener("click", () => {
-        const qtyInput = dialog.querySelector("#posVoidQtyInput");
-        const noteInput = dialog.querySelector("#posVoidNoteInput");
-        const errorBox = dialog.querySelector("#posVoidDialogError");
-        const maxQty = Number(qtyInput?.max || 0);
-        const voidQty = Number(qtyInput?.value || 0);
-        if (!Number.isFinite(voidQty) || voidQty <= 0 || voidQty > maxQty) {
-            if (errorBox) {
-                errorBox.textContent = `Qty void tidak valid. Maksimal ${maxQty}.`;
-                errorBox.hidden = false;
-            }
-            qtyInput?.focus();
-            return;
-        }
-        closePosVoidDialog({
-            voidQty,
-            voidNote: String(noteInput?.value || ""),
-        });
-    });
-    dialog.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") {
-            closePosVoidDialog(null);
-        }
-    });
-    return dialog;
-}
-
-function closePosVoidDialog(payload) {
-    const dialog = document.getElementById("posVoidDialog");
-    if (dialog) {
-        dialog.hidden = true;
-    }
-    if (posVoidDialogResolve) {
-        posVoidDialogResolve(payload);
-        posVoidDialogResolve = null;
-    }
-}
-
-function requestPosVoidDetails(maxQty) {
-    const dialog = ensurePosVoidDialog();
-    const qtyInput = dialog.querySelector("#posVoidQtyInput");
-    const noteInput = dialog.querySelector("#posVoidNoteInput");
-    const helpText = dialog.querySelector("#posVoidQtyHelp");
-    const errorBox = dialog.querySelector("#posVoidDialogError");
-    if (qtyInput) {
-        qtyInput.max = String(maxQty);
-        qtyInput.value = String(maxQty);
-    }
-    if (noteInput) {
-        noteInput.value = "";
-    }
-    if (helpText) {
-        helpText.textContent = `Maksimal ${maxQty} qty aktif.`;
-    }
-    if (errorBox) {
-        errorBox.textContent = "";
-        errorBox.hidden = true;
-    }
-    dialog.hidden = false;
-    window.requestAnimationFrame(() => {
-        qtyInput?.focus();
-        qtyInput?.select();
-    });
-    return new Promise((resolve) => {
-        posVoidDialogResolve = resolve;
-    });
-}
-
 async function submitPosVoidRequest(button) {
     if (!(button instanceof HTMLButtonElement)) {
         return;
@@ -3025,12 +2973,18 @@ async function submitPosVoidRequest(button) {
         return;
     }
 
-    const voidDetails = await requestPosVoidDetails(maxQty);
-    if (!voidDetails) {
+    const requestedQty = window.prompt(`Void berapa qty? Maksimal ${maxQty}.`, String(maxQty));
+    if (requestedQty === null) {
         return;
     }
 
-    const { voidQty, voidNote } = voidDetails;
+    const voidQty = Number(requestedQty);
+    if (!Number.isFinite(voidQty) || voidQty <= 0 || voidQty > maxQty) {
+        window.alert(`Qty void tidak valid. Maksimal ${maxQty}.`);
+        return;
+    }
+
+    const voidNote = window.prompt("Catatan void opsional", "") ?? "";
     const originalText = button.textContent;
     button.disabled = true;
     button.textContent = "Memproses...";
@@ -3051,26 +3005,13 @@ async function submitPosVoidRequest(button) {
         if (!response.ok || data.status !== "success") {
             throw new Error(data.message || "Void item gagal diproses.");
         }
-        if (typeof window.showToast === "function") {
-            window.showToast(data.message || "Void item berhasil diproses.");
-        } else {
-            notifyPosInline(data.message || "Void item berhasil diproses.");
-        }
-        const nextActiveQty = Number(data.active_qty || 0);
-        if (nextActiveQty <= 0) {
-            button.dataset.posVoidableQty = "0";
-            button.disabled = true;
-            button.textContent = "Sudah Void";
-        } else {
-            button.dataset.posVoidableQty = String(nextActiveQty);
-        }
+        window.alert(data.message || "Void item berhasil diproses.");
+        window.location.reload();
     } catch (error) {
-        notifyPosInline(error.message || "Void item gagal diproses.");
+        window.alert(error.message || "Void item gagal diproses.");
     } finally {
-        if (Number(button.dataset.posVoidableQty || 0) > 0) {
-            button.disabled = false;
-            button.textContent = originalText;
-        }
+        button.disabled = false;
+        button.textContent = originalText;
     }
 }
 
@@ -3335,6 +3276,7 @@ document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && posDebitBankModal && !posDebitBankModal.hidden) {
         event.preventDefault();
         closePosDebitBankModal();
+        event.stopImmediatePropagation();
     }
 });
 
@@ -3516,6 +3458,123 @@ posHeaderMenus.forEach((menu) => {
     });
 });
 
+let posPaymentModalLastFocus = null;
+
+function isPosPaymentModalOpen() {
+    return Boolean(posPaymentModal && !posPaymentModal.hidden);
+}
+
+function openPaymentModal(options = {}) {
+    if (!posPaymentModal) {
+        return;
+    }
+
+    if (!isPosPaymentModalOpen()) {
+        posPaymentModalLastFocus = document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+    }
+
+    closePosCatalogPicker();
+    syncPosPaymentDockSummary();
+    updatePosChangePreview();
+
+    posPaymentModal.hidden = false;
+    posPaymentModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("pos-payment-modal-open");
+    scheduleFitPosGrandTotalText(true);
+
+    window.requestAnimationFrame(() => {
+        const focusTarget = options.focusPaid
+            ? (posPaidAmount || posCheckoutButton || posPaymentModalWindow)
+            : (posCheckoutButton || posPaidAmount || posPaymentModalWindow);
+        focusTarget?.focus?.({ preventScroll: true });
+        if (options.focusPaid && posPaidAmount) {
+            posPaidAmount.select?.();
+        }
+        scheduleFitPosGrandTotalText(true);
+    });
+}
+
+function closePaymentModal(options = {}) {
+    if (!posPaymentModal || posPaymentModal.hidden) {
+        return;
+    }
+
+    posPaymentModal.hidden = true;
+    posPaymentModal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("pos-payment-modal-open");
+
+    const shouldRestoreFocus = options.restoreFocus !== false;
+    const focusTarget = posPaymentModalLastFocus;
+    posPaymentModalLastFocus = null;
+    if (shouldRestoreFocus && focusTarget && document.contains(focusTarget)) {
+        window.requestAnimationFrame(() => {
+            focusTarget.focus?.({ preventScroll: true });
+        });
+    }
+}
+
+posPaymentModal?.addEventListener("click", (event) => {
+    const closeTrigger = event.target.closest("[data-pos-payment-modal-close]");
+    if (!closeTrigger) {
+        return;
+    }
+    event.preventDefault();
+    closePaymentModal();
+});
+
+function focusPosQuickSearchShortcut() {
+    if (!posQuickSearch) {
+        return;
+    }
+    closePosCatalogPicker();
+    posQuickSearch.focus();
+    posQuickSearch.select();
+}
+
+function focusPosCustomerShortcut() {
+    const target = posCustomerSearch || posCustomerId;
+    if (!target) {
+        return;
+    }
+    closePosCatalogPicker();
+    target.focus();
+    target.select?.();
+}
+
+function focusPosPaidShortcut() {
+    if (!posPaidAmount) {
+        return;
+    }
+    openPaymentModal({ focusPaid: true });
+    setPosKeypadTarget("paid");
+}
+
+document.querySelectorAll("[data-pos-focus-quicksearch]").forEach((button) => {
+    button.addEventListener("click", focusPosQuickSearchShortcut);
+});
+
+document.querySelectorAll("[data-pos-focus-customer]").forEach((button) => {
+    button.addEventListener("click", focusPosCustomerShortcut);
+});
+
+document.querySelectorAll("[data-pos-open-catalog]").forEach((button) => {
+    button.addEventListener("click", openPosCatalogPicker);
+});
+
+document.querySelectorAll("[data-pos-focus-paid]").forEach((button) => {
+    button.addEventListener("click", focusPosPaidShortcut);
+});
+
+document.querySelectorAll("[data-pos-open-payment-modal], [data-pos-trigger-checkout]").forEach((button) => {
+    if (button.dataset.posPaymentModalBound === "1") {
+        return;
+    }
+    button.dataset.posPaymentModalBound = "1";
+    button.addEventListener("click", () => openPaymentModal());
+});
+
 document.addEventListener("keydown", (event) => {
     if ((event.key === "Enter" || event.key === "NumpadEnter") && shouldBlockPosEnterKey(event.target)) {
         event.preventDefault();
@@ -3525,18 +3584,40 @@ document.addEventListener("keydown", (event) => {
         return;
     }
     if (event.key === "Escape") {
+        if (isPosPaymentModalOpen()) {
+            event.preventDefault();
+            closePaymentModal();
+            return;
+        }
         closePosHeaderMenus();
+    }
+    if (event.key === "/" && !isEditablePosTarget(event.target) && (posCatalogPicker?.hidden ?? true)) {
+        event.preventDefault();
+        focusPosQuickSearchShortcut();
+        return;
+    }
+    if (event.key === "F2" && event.shiftKey) {
+        event.preventDefault();
+        focusPosCustomerShortcut();
+        return;
     }
     if (event.key === "F2") {
         event.preventDefault();
         openPosCatalogPicker();
+        return;
+    }
+    if (event.key === "F3") {
+        event.preventDefault();
+        focusPosPaidShortcut();
+        return;
     }
     if (event.key === "Escape") {
         closePosCatalogPicker();
     }
-    if (event.key === "End" && !isEditablePosTarget(event.target) && (posCatalogPicker?.hidden ?? true)) {
+    if (event.key === "End" && (posCatalogPicker?.hidden ?? true)) {
         event.preventDefault();
-        checkoutPosTransaction();
+        openPaymentModal();
+        return;
     }
 
     handlePosCartKeyboard(event);

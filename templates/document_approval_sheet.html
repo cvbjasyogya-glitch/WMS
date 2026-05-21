@@ -7,6 +7,7 @@
 {% set document_status_tone = "green" if (document.status or "") == "active" else "orange" %}
 
 {% block title %}Lembar Pengesahan {{ document.document_code }} - ERP-CV.BJAS{% endblock %}
+{% block body_class %}internal-module-shell{% endblock %}
 {% block eyebrow %}HRIS Documents{% endblock %}
 {% block page_title %}Lembar Pengesahan{% endblock %}
 {% block page_content_class %}document-approval-sheet-page{% endblock %}
@@ -84,7 +85,7 @@
         font-weight: 700;
         letter-spacing: 0.18em;
         text-transform: uppercase;
-        color: #1d4ed8;
+        color: #b99438;
     }
     .document-approval-titleblock h2 {
         margin: 0 0 12px;
@@ -328,18 +329,6 @@
         line-height: 1.7;
         text-align: center;
     }
-    .document-approval-sign-feedback {
-        margin: 0;
-        padding: 10px 12px;
-        border-radius: 14px;
-        border: 1px solid rgba(248, 113, 113, 0.35);
-        background: rgba(254, 226, 226, 0.86);
-        color: #991b1b;
-        font-size: 13px;
-        line-height: 1.55;
-        text-align: center;
-    }
-    .document-approval-sign-feedback[hidden] { display: none !important; }
     .document-approval-sign-actions { display: grid; gap: 10px; }
     .document-approval-sign-actions .ghost-button,
     .document-approval-sign-actions button[type="submit"] {
@@ -382,116 +371,86 @@
         .document-approval-preview-frame iframe { min-height: 54vh; }
     }
     @media print {
-        @page { size: A4 portrait; margin: 10mm; }
-        html,
-        body {
-            background: #ffffff !important;
-            color: #0f172a !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-        }
-        body * {
-            box-shadow: none !important;
-            text-shadow: none !important;
-            animation: none !important;
-            transition: none !important;
-        }
         .page-hero,
         .page-actions-desktop-slot,
         .mobile-command-deck,
         .flash-stack,
-        .document-approval-preview-stage,
-        .document-approval-sign-pad,
-        .document-approval-sign-help,
         .document-approval-sign-actions { display: none !important; }
-        .document-approval-sheet-page,
-        .document-approval-sheet {
-            max-width: none !important;
-            display: block !important;
-        }
-        .document-approval-masthead {
-            display: grid;
-            grid-template-columns: 1fr auto;
-            padding: 0 0 14px !important;
-            border-radius: 0 !important;
-            border-bottom: 2px solid #1d4ed8;
-            background: #ffffff !important;
-            color: #0f172a !important;
-        }
-        .document-approval-brand-mark {
-            width: 54px;
-            height: 54px;
-            background: #ffffff !important;
-            border: 1px solid #dbe3f0 !important;
-        }
-        .document-approval-brand-mark img {
-            width: 40px;
-            height: 40px;
-        }
-        .document-approval-kicker,
-        .document-approval-masthead h2,
-        .document-approval-masthead p,
-        .document-approval-titleblock h2,
-        .document-approval-paper-head h3,
-        .document-approval-panel-head h3 {
-            color: #0f172a !important;
-        }
-        .document-approval-titleblock,
-        .document-approval-paper-head {
-            max-width: none;
-            margin-bottom: 12px;
-            text-align: left;
-        }
-        .document-approval-stat-grid {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 8px;
-            margin-bottom: 14px;
-        }
-        .document-approval-stat-card,
-        .document-approval-chip,
-        .document-approval-panel,
-        .document-approval-sign-section {
-            border-color: #dbe3f0 !important;
-            background: #ffffff !important;
-        }
-        .document-approval-stat-card {
-            min-height: 0;
-            padding: 10px 12px;
-            border-radius: 10px;
-        }
-        .document-approval-stat-card strong {
-            font-size: 13px;
-        }
-        .document-approval-preview-foot {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 8px;
-        }
-        .document-approval-detail-grid {
-            grid-template-columns: 1fr;
-            gap: 12px;
-        }
         .document-approval-workboard,
         .document-approval-paper,
         .document-approval-panel,
         .document-approval-sign-section {
-            padding: 0 !important;
-            border-radius: 0 !important;
             box-shadow: none;
             break-inside: avoid;
         }
-        .document-approval-paper,
-        .document-approval-sign-section {
-            border: 0 !important;
-            background: #ffffff !important;
-        }
-        .document-approval-sign-form {
-            display: none !important;
-        }
     }
 </style>
+<link rel="stylesheet" href="{{ asset_url('css/internal_portal_zip.css') }}?v={{ app_version|default('20260520', true) }}">
+{% endblock %}
+
+{% block page_header %}
+<header class="internal-app-topbar module-header" aria-label="Navigasi modul internal">
+    <a class="brand internal-topbar-left" href="/workspace/" aria-label="Kembali ke CV BJAS Internal Portal">
+        <span class="brand-logo is-fallback internal-brand-pill" aria-hidden="true">
+            <span class="brand-fallback">CV BJAS</span>
+        </span>
+        <span class="brand-divider internal-topbar-separator" aria-hidden="true"></span>
+        <span class="brand-logo brand-logo-wide is-fallback internal-brand-pill" aria-hidden="true">
+            <span class="brand-fallback">Mataram Sports</span>
+        </span>
+    </a>
+    <a href="/workspace/" class="header-center-logo internal-topbar-logo" aria-label="Pusat aplikasi CV BJAS">
+        <img src="{{ asset_url('assets/internal_portal/header-center-logo.svg') }}" alt="CV Berkah Jaya Abadi Sports">
+    </a>
+    {% include "partials/internal_topbar_actions.html" %}
+</header>
+<nav class="internal-breadcrumb breadcrumb-bar" aria-label="Breadcrumb">
+    <ol class="breadcrumb-list">
+        <li><a href="/workspace/">Beranda</a></li>
+        <li><a href="/hris/documents">Documents</a></li>
+        <li aria-current="page">Lembar Pengesahan</li>
+    </ol>
+</nav>
+{% if page_actions_markup|trim %}
+<section class="document-module-actions" aria-label="Aksi dokumen">
+    <div class="page-actions" id="pageActionsNode">
+        {{ page_actions_markup|safe }}
+    </div>
+</section>
+{% endif %}
 {% endblock %}
 
 {% block content %}
+<div class="internal-module-layout module-layout">
+<aside class="internal-module-nav information-module-nav info-sidebar">
+    <section class="table-box hris-module-disclosure information-sidebar-card" aria-label="Menu BJAS HRIS Documents">
+        <div class="hris-module-summary information-sidebar-head sidebar-title">
+            <div class="hris-module-summary-copy">
+                <span>Modul</span>
+                <strong>BJAS HRIS</strong>
+            </div>
+        </div>
+        <nav class="cards hris-module-grid sidebar-menu" aria-label="Sub menu BJAS HRIS Documents">
+            <a href="/hris/" class="card hris-module-card sidebar-link">
+                <span class="hris-module-nav-icon sidebar-icon" aria-hidden="true">⌂</span>
+                <span class="hris-module-card-copy"><h2>Beranda</h2></span>
+            </a>
+            <a href="/hris/documents" class="card hris-module-card sidebar-link active is-active">
+                <span class="hris-module-nav-icon sidebar-icon" aria-hidden="true">📄</span>
+                <span class="hris-module-card-copy"><h2>Documents</h2><small>SOP &amp; policy</small></span>
+            </a>
+            <a href="/hris/approval" class="card hris-module-card sidebar-link">
+                <span class="hris-module-nav-icon sidebar-icon" aria-hidden="true">✓</span>
+                <span class="hris-module-card-copy"><h2>Approval</h2></span>
+            </a>
+            <a href="/hris/report" class="card hris-module-card sidebar-link">
+                <span class="hris-module-nav-icon sidebar-icon" aria-hidden="true">📊</span>
+                <span class="hris-module-card-copy"><h2>Report</h2></span>
+            </a>
+        </nav>
+    </section>
+</aside>
+<section class="internal-module-panel information-panel content-panel">
 <section class="document-approval-sheet">
     <header class="document-approval-masthead">
         <div class="document-approval-branding">
@@ -642,7 +601,6 @@
                         <canvas data-document-signature-canvas aria-label="Area tanda tangan digital"></canvas>
                     </div>
                     <p class="document-approval-sign-help">Pengesahan digital akan memperbarui tanda tangan aktif pada dokumen ini. Gunakan tombol ulangi jika perlu membersihkan coretan dan menulis ulang tanda tangan dari awal.</p>
-                    <p class="document-approval-sign-feedback" data-document-signature-feedback hidden>Tanda tangan digital belum diisi.</p>
                     <div class="document-approval-sign-actions">
                         <button type="button" class="ghost-button" data-document-signature-clear>Ulangi Tanda Tangan</button>
                         <button type="submit" {% if not document.attachment_url %}disabled{% endif %}>Simpan Pengesahan</button>
@@ -652,6 +610,8 @@
         </div>
     </section>
 </section>
+</section>
+</div>
 
 <script>
     (function () {
@@ -672,7 +632,6 @@
             const form = root.closest("form");
             const input = form ? form.querySelector("[data-document-signature-input]") : null;
             const clearButton = form ? form.querySelector("[data-document-signature-clear]") : null;
-            const feedback = form ? form.querySelector("[data-document-signature-feedback]") : null;
             if (!canvas || !form || !input) {
                 return;
             }
@@ -724,9 +683,6 @@
                 }
                 input.value = canvas.toDataURL("image/png");
                 root.dataset.signatureReady = "1";
-                if (feedback) {
-                    feedback.hidden = true;
-                }
             };
 
             const startDrawing = function (event) {
@@ -771,9 +727,6 @@
                     input.value = "";
                     prepareCanvas("");
                     root.dataset.signatureReady = "0";
-                    if (feedback) {
-                        feedback.hidden = true;
-                    }
                 });
             }
 
@@ -782,11 +735,7 @@
                     return;
                 }
                 event.preventDefault();
-                if (feedback) {
-                    feedback.textContent = "Tanda tangan digital belum diisi. Tulis tanda tangan di area kanvas dulu, lalu simpan pengesahan.";
-                    feedback.hidden = false;
-                    feedback.scrollIntoView({ behavior: "smooth", block: "center" });
-                }
+                window.alert("Tanda tangan digital belum diisi.");
             });
 
             window.addEventListener("resize", function () {

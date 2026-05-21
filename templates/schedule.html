@@ -12,6 +12,7 @@
 {% block eyebrow %}Board Jadwal{% endblock %}
 {% block page_title %}Jadwal Tim{% endblock %}
 {% block page_subtitle %}Board ini menyatukan jadwal manual dengan data HRIS supaya shift, cuti, off day, dan perubahan staf terbaca rapi dalam satu tampilan kerja.{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
 
 {% block page_actions %}
 <a class="ghost-button" href="/libur/">Buka Libur</a>
@@ -450,15 +451,6 @@
     <input type="hidden" name="note" value="">
 </form>
 
-<form method="POST" action="/schedule/entry/save" id="scheduleEntryQuickOverrideForm" hidden>
-    {{ filter_hidden_inputs() }}
-    <input type="hidden" name="employee_id">
-    <input type="hidden" name="shift_code">
-    <input type="hidden" name="entry_start_date">
-    <input type="hidden" name="entry_end_date">
-    <input type="hidden" name="note" value="">
-</form>
-
 <form method="POST" action="/schedule/live/save" id="scheduleLiveQuickDeleteForm" hidden>
     {{ filter_hidden_inputs() }}
     <input type="hidden" name="live_warehouse_id">
@@ -481,19 +473,6 @@
 
 <div class="schedule-context-menu" id="scheduleContextMenu" hidden>
     <button type="button" data-schedule-context-action="edit">Edit Jadwal</button>
-    {% if quick_override_shifts %}
-    <div class="schedule-context-menu-section" data-schedule-quick-override-section>
-        <span>Override cepat</span>
-        {% for shift in quick_override_shifts %}
-        <button
-            type="button"
-            data-schedule-context-action="quick-override"
-            data-schedule-override-shift-code="{{ shift.code }}"
-            data-schedule-override-shift-label="{{ shift.label }}"
-        >Override ke {{ shift.label }}</button>
-        {% endfor %}
-    </div>
-    {% endif %}
     <button type="button" data-schedule-context-action="delete">Hapus Jadwal</button>
 </div>
 {% endif %}
@@ -513,7 +492,7 @@
             <h3>Jadwal tampil {{ filters.days }} hari dengan header staf tetap dan area yang bisa digeser saat kolom karyawan atau detail board makin banyak.</h3>
             <p>Geser ke kanan untuk melihat staf lain. Format ini dijaga supaya nyaman dibaca di laptop, tablet, dan mobile tanpa ada kolom penting yang terpotong.</p>
             {% if can_manage_schedule %}
-            <p class="schedule-board-action-hint">Klik kanan di desktop atau tekan tahan di mobile untuk edit, hapus, atau override cepat jadwal yang sudah terisi.</p>
+            <p class="schedule-board-action-hint">Klik kanan di desktop atau tekan tahan di mobile untuk edit dan hapus jadwal yang sudah terisi.</p>
             {% endif %}
         </div>
         <div class="schedule-matrix-meta">
@@ -561,7 +540,7 @@
                     <td
                         class="schedule-matrix-cell {% if cell and cell.source != 'manual' %}is-auto{% endif %}"
                         title="{% if cell %}{{ cell.title }}{% else %}Belum ada shift{% endif %}"
-                        {% if can_manage_schedule and cell and cell.source != 'offboarding' %}
+                        {% if can_manage_schedule and cell and cell.source == 'manual' %}
                         data-schedule-context-kind="entry"
                         data-schedule-entry-cell="1"
                         data-schedule-employee-id="{{ member.employee_id }}"
@@ -571,7 +550,6 @@
                         data-schedule-shift-code="{{ cell.shift_code or cell.code }}"
                         data-schedule-shift-label="{{ cell.label }}"
                         data-schedule-note="{{ cell.note or '' }}"
-                        data-schedule-source="{{ cell.source or '' }}"
                         {% endif %}
                     >
                         {% if cell %}
@@ -580,9 +558,6 @@
                             style="--schedule-chip-bg-light: {{ cell.light_bg_color }}; --schedule-chip-bg-dark: {{ cell.dark_bg_color }}; --schedule-chip-color-light: {{ cell.light_text_color }}; --schedule-chip-color-dark: {{ cell.dark_text_color }}; --schedule-chip-border-light: {{ cell.light_border_color }}; --schedule-chip-border-dark: {{ cell.dark_border_color }};"
                         >{{ cell.code }}</span>
                         <small class="schedule-matrix-cell-label">{{ cell.label }}</small>
-                        {% if cell.note %}
-                        <small class="schedule-matrix-cell-note">{{ cell.note }}</small>
-                        {% endif %}
                         {% else %}
                         <span class="schedule-matrix-empty">-</span>
                         {% endif %}
@@ -733,8 +708,12 @@
     {% endif %}
 </div>
 {% if can_manage_schedule %}
+<script id="scheduleLiveDefaultsData" type="application/json">
+{{ live_schedule_defaults|tojson }}
+</script>
 <script>
 (() => {
+    const scheduleLiveDefaults = window.wmsReadJsonScript("scheduleLiveDefaultsData");
     const contextMenu = document.getElementById("scheduleContextMenu");
     if (!contextMenu) {
         return;
@@ -742,11 +721,9 @@
 
     const editButton = contextMenu.querySelector('[data-schedule-context-action="edit"]');
     const deleteButton = contextMenu.querySelector('[data-schedule-context-action="delete"]');
-    const quickOverrideSection = contextMenu.querySelector("[data-schedule-quick-override-section]");
     const scheduleEntryDisclosure = document.getElementById("scheduleEntryDisclosure");
     const scheduleEntryForm = document.getElementById("scheduleEntryForm");
     const scheduleEntryDeleteForm = document.getElementById("scheduleEntryQuickDeleteForm");
-    const scheduleEntryQuickOverrideForm = document.getElementById("scheduleEntryQuickOverrideForm");
     const scheduleLiveDisclosure = document.getElementById("scheduleLiveDisclosure");
     const scheduleLiveForm = document.getElementById("scheduleLiveForm");
     const scheduleLiveDeleteForm = document.getElementById("scheduleLiveQuickDeleteForm");
@@ -907,9 +884,6 @@
         if (deleteButton) {
             deleteButton.textContent = kind === "live" ? "Hapus Jadwal Live" : "Hapus Jadwal";
         }
-        if (quickOverrideSection) {
-            quickOverrideSection.hidden = kind === "live";
-        }
 
         contextMenu.hidden = false;
         const menuRect = contextMenu.getBoundingClientRect();
@@ -990,15 +964,6 @@
         });
     }
 
-    function notifyScheduleAction(message) {
-        if (!message) {
-            return;
-        }
-        if (typeof window.showToast === "function") {
-            window.showToast(message);
-        }
-    }
-
     function openScheduleEntryEditor(source) {
         if (!scheduleEntryForm || !source) {
             return;
@@ -1025,8 +990,8 @@
         setFormValue(scheduleLiveForm, "employee_id", source.dataset.liveEmployeeId || "");
         setFormValue(scheduleLiveForm, "channel_label", source.dataset.liveChannelLabel || "");
         setFormValue(scheduleLiveForm, "note", source.dataset.liveNote || "");
-        setFormValue(scheduleLiveForm, "bg_color", source.dataset.liveBgColor || "{{ live_schedule_defaults.bg_color }}");
-        setFormValue(scheduleLiveForm, "text_color", source.dataset.liveTextColor || "{{ live_schedule_defaults.text_color }}");
+        setFormValue(scheduleLiveForm, "bg_color", source.dataset.liveBgColor || scheduleLiveDefaults.bg_color || "#dfeaf5");
+        setFormValue(scheduleLiveForm, "text_color", source.dataset.liveTextColor || scheduleLiveDefaults.text_color || "#17304a");
         setFormChecked(scheduleLiveForm, "is_checked", source.dataset.liveIsChecked === "1");
         scheduleLiveDisclosure?.scrollIntoView({ behavior: "smooth", block: "start" });
         focusField(scheduleLiveForm.elements.namedItem("channel_label"));
@@ -1044,38 +1009,6 @@
         setFormValue(scheduleEntryDeleteForm, "entry_start_date", source.dataset.scheduleDate || "");
         setFormValue(scheduleEntryDeleteForm, "entry_end_date", source.dataset.scheduleDate || "");
         scheduleEntryDeleteForm.requestSubmit ? scheduleEntryDeleteForm.requestSubmit() : scheduleEntryDeleteForm.submit();
-    }
-
-    function buildQuickOverrideNote(source, shiftLabel) {
-        const currentLabel = source.dataset.scheduleShiftLabel || source.dataset.scheduleShiftCode || "jadwal sebelumnya";
-        const currentNote = (source.dataset.scheduleNote || "").trim();
-        const targetLabel = shiftLabel || "shift baru";
-        const segments = [`Override HR dari ${currentLabel} ke ${targetLabel}`];
-        if (currentNote) {
-            segments.push(currentNote);
-        }
-        return segments.join(": ");
-    }
-
-    function submitScheduleQuickOverride(source, button) {
-        if (!scheduleEntryQuickOverrideForm || !source || !button) {
-            return;
-        }
-        const shiftCode = button.dataset.scheduleOverrideShiftCode || "";
-        const shiftLabel = button.dataset.scheduleOverrideShiftLabel || shiftCode;
-        if (!shiftCode) {
-            return;
-        }
-        const label = `${source.dataset.scheduleEmployeeName || "Staf"} - ${source.dataset.scheduleDayLabel || ""}`.trim();
-        setFormValue(scheduleEntryQuickOverrideForm, "employee_id", source.dataset.scheduleEmployeeId || "");
-        setFormValue(scheduleEntryQuickOverrideForm, "shift_code", shiftCode);
-        setFormValue(scheduleEntryQuickOverrideForm, "entry_start_date", source.dataset.scheduleDate || "");
-        setFormValue(scheduleEntryQuickOverrideForm, "entry_end_date", source.dataset.scheduleDate || "");
-        setFormValue(scheduleEntryQuickOverrideForm, "note", buildQuickOverrideNote(source, shiftLabel));
-        notifyScheduleAction(`Override ${label || "jadwal"} ke ${shiftLabel} diproses.`);
-        scheduleEntryQuickOverrideForm.requestSubmit
-            ? scheduleEntryQuickOverrideForm.requestSubmit()
-            : scheduleEntryQuickOverrideForm.submit();
     }
 
     function submitScheduleLiveDelete(source) {
@@ -1171,11 +1104,6 @@
             } else {
                 openScheduleEntryEditor(source);
             }
-            return;
-        }
-
-        if (action === "quick-override") {
-            submitScheduleQuickOverride(source, button);
             return;
         }
 

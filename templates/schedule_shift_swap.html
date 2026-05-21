@@ -12,6 +12,7 @@
 {% block eyebrow %}Self Service Jadwal{% endblock %}
 {% block page_title %}Pengajuan Tuker Shift{% endblock %}
 {% block page_subtitle %}Ajukan tuker shift manual dengan staf lain pada tanggal yang sama tanpa mengubah board operasional secara langsung. Request akan masuk dulu ke approval HR atau Super Admin.{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
 
 {% block page_actions %}
 <a class="ghost-button" href="/schedule/?start={{ filters.start }}&days={{ filters.days }}{% if selected_warehouse %}&warehouse={{ selected_warehouse }}{% endif %}">Kembali ke Board</a>

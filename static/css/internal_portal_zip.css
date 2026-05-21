@@ -1,0 +1,4199 @@
+body.internal-portal-shell,
+body.internal-module-shell {
+    --zip-navy: #0c2344;
+    --zip-navy-2: #14345e;
+    --zip-gold: #d9a62e;
+    --zip-gold-soft: #fff4d8;
+    --zip-bg: #f4f6f9;
+    --zip-surface: #ffffff;
+    --zip-surface-soft: #f9fafc;
+    --zip-border: #dfe5ee;
+    --zip-text: #172033;
+    --zip-muted: #667085;
+    --zip-success: #168364;
+    --zip-warning: #b45f06;
+    --zip-info: #8a6417;
+    --zip-shadow-soft: 0 14px 36px rgba(12, 35, 68, 0.08);
+    --zip-shadow-card: 0 10px 24px rgba(12, 35, 68, 0.07);
+    --zip-shadow-panel: 0 12px 28px rgba(12, 35, 68, 0.07);
+    --zip-radius-lg: 18px;
+    --zip-radius-md: 14px;
+    --zip-radius-sm: 10px;
+    color: var(--zip-text) !important;
+    background:
+        radial-gradient(circle at top left, rgba(217, 166, 46, 0.12), transparent 30rem),
+        linear-gradient(180deg, #f7f9fc 0%, var(--zip-bg) 42%, #eef2f7 100%) !important;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+    line-height: 1.5 !important;
+}
+
+body.internal-module-shell {
+    background:
+        radial-gradient(circle at top left, rgba(217, 166, 46, 0.09), transparent 30rem),
+        #eef1f5 !important;
+}
+
+body.internal-portal-shell::before,
+body.internal-module-shell::before {
+    display: none !important;
+}
+
+body.internal-portal-shell .layout,
+body.internal-module-shell .layout {
+    display: block !important;
+    min-height: 100vh !important;
+    background: transparent !important;
+}
+
+body.internal-portal-shell .sidebar,
+body.internal-portal-shell .desktop-sidebar-toggle,
+body.internal-portal-shell .mobile-nav,
+body.internal-portal-shell .mobile-dock,
+body.internal-portal-shell .floating-toolbelt,
+body.internal-portal-shell .notification-center-root,
+body.internal-portal-shell .attendance-camera-shortcut-root,
+body.internal-portal-shell .chat-widget-root,
+body.internal-portal-shell .app-version-badge,
+body.internal-module-shell .sidebar,
+body.internal-module-shell .desktop-sidebar-toggle,
+body.internal-module-shell .mobile-nav,
+body.internal-module-shell .mobile-dock,
+body.internal-module-shell .floating-toolbelt,
+body.internal-module-shell .notification-center-root,
+body.internal-module-shell .attendance-camera-shortcut-root,
+body.internal-module-shell .chat-widget-root,
+body.internal-module-shell .app-version-badge {
+    display: none !important;
+}
+
+body.internal-portal-shell .main,
+body.internal-module-shell .main {
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    background: transparent !important;
+}
+
+body.internal-portal-shell .page-content {
+    width: min(1180px, calc(100% - 32px)) !important;
+    max-width: 1180px !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+body.internal-module-shell .page-content {
+    width: min(1500px, calc(100% - 40px)) !important;
+    max-width: 1500px !important;
+    margin: 0 auto !important;
+    padding: 24px 0 28px !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-portal-shell .internal-app-topbar {
+    min-height: 72px !important;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important;
+    gap: 20px !important;
+    padding: 14px clamp(18px, 4vw, 48px) !important;
+    overflow: visible !important;
+}
+
+html[data-theme] body.internal-portal-shell .internal-topbar-left {
+    width: max-content !important;
+    justify-self: start !important;
+}
+
+html[data-theme] body.internal-portal-shell .internal-brand-pill {
+    min-height: 46px !important;
+    padding: 0 16px !important;
+}
+
+html[data-theme] body.internal-portal-shell .internal-topbar-left .internal-brand-pill:last-child {
+    min-width: 164px !important;
+}
+
+html[data-theme] body.internal-portal-shell .internal-topbar-logo {
+    width: clamp(170px, 20vw, 260px) !important;
+    height: 48px !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+}
+
+html[data-theme] body.internal-portal-shell .internal-topbar-logo img {
+    max-height: 72px !important;
+}
+
+html[data-theme] body.internal-portal-shell .internal-topbar-user {
+    justify-self: end !important;
+}
+
+body.internal-portal-shell .site-header,
+body.internal-module-shell .module-header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 80 !important;
+    min-height: 72px !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important;
+    align-items: center !important;
+    gap: 24px !important;
+    padding: 14px clamp(18px, 4vw, 48px) !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+    border: 0 !important;
+    border-bottom: 1px solid rgba(223, 229, 238, 0.92) !important;
+    box-shadow: none !important;
+    backdrop-filter: blur(16px) !important;
+    overflow: visible !important;
+}
+
+body.internal-module-shell .module-header {
+    min-height: 72px !important;
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+}
+
+body.internal-portal-shell .brand,
+body.internal-module-shell .brand {
+    min-width: 0 !important;
+    width: max-content !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 14px !important;
+    justify-self: start !important;
+    color: var(--zip-navy) !important;
+    text-decoration: none !important;
+}
+
+body.internal-portal-shell .brand-logo,
+body.internal-module-shell .brand-logo {
+    width: auto !important;
+    min-width: 92px !important;
+    height: 46px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex: 0 0 auto !important;
+    overflow: hidden !important;
+    padding: 0 14px !important;
+    color: var(--zip-navy) !important;
+    background: #fff !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 6px 16px rgba(12, 35, 68, 0.07) !important;
+}
+
+body.internal-portal-shell .brand-logo-wide,
+body.internal-module-shell .brand-logo-wide {
+    min-width: 154px !important;
+}
+
+body.internal-portal-shell .brand-fallback,
+body.internal-module-shell .brand-fallback {
+    display: block !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    font-size: 0.76rem !important;
+    font-weight: 800 !important;
+    line-height: 1.15 !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+}
+
+body.internal-portal-shell .brand-divider,
+body.internal-module-shell .brand-divider {
+    width: 1px !important;
+    height: 30px !important;
+    background: var(--zip-border) !important;
+}
+
+body.internal-portal-shell .header-center-logo,
+body.internal-module-shell .header-center-logo {
+    width: clamp(200px, 18vw, 300px) !important;
+    height: 54px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    justify-self: center !important;
+    overflow: visible !important;
+    pointer-events: auto !important;
+}
+
+body.internal-portal-shell .header-center-logo img,
+body.internal-module-shell .header-center-logo img {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: 54px !important;
+    object-fit: contain !important;
+    transform: none !important;
+}
+
+body.internal-portal-shell .user-nav,
+body.internal-module-shell .user-nav {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    justify-self: end !important;
+}
+
+body.internal-portal-shell .notification-button,
+body.internal-module-shell .notification-button,
+body.internal-portal-shell .profile-button,
+body.internal-module-shell .profile-button {
+    display: inline-flex !important;
+    align-items: center !important;
+    border: 1px solid var(--zip-border) !important;
+    background: var(--zip-surface) !important;
+    box-shadow: 0 6px 16px rgba(12, 35, 68, 0.06) !important;
+    text-decoration: none !important;
+}
+
+body.internal-portal-shell .notification-button,
+body.internal-module-shell .notification-button {
+    position: relative !important;
+    width: 42px !important;
+    min-width: 42px !important;
+    height: 42px !important;
+    justify-content: center !important;
+    color: var(--zip-gold) !important;
+    border-radius: 999px !important;
+}
+
+body.internal-portal-shell .notification-dot,
+body.internal-module-shell .notification-dot {
+    position: absolute !important;
+    top: 9px !important;
+    right: 9px !important;
+    width: 8px !important;
+    height: 8px !important;
+    background: var(--zip-gold) !important;
+    border: 2px solid #fff !important;
+    border-radius: 999px !important;
+}
+
+body.internal-portal-shell .profile-button,
+body.internal-module-shell .profile-button {
+    min-height: 42px !important;
+    gap: 10px !important;
+    padding: 6px 8px 6px 14px !important;
+    color: var(--zip-navy) !important;
+    border-radius: 999px !important;
+}
+
+body.internal-portal-shell .profile-name,
+body.internal-module-shell .profile-name {
+    max-width: 120px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    font-weight: 700 !important;
+}
+
+body.internal-portal-shell .avatar,
+body.internal-module-shell .avatar {
+    width: 30px !important;
+    height: 30px !important;
+    display: inline-grid !important;
+    place-items: center !important;
+    color: #fff !important;
+    font-size: 0.88rem !important;
+    font-weight: 800 !important;
+    background: linear-gradient(135deg, var(--zip-navy), var(--zip-navy-2)) !important;
+    border-radius: 999px !important;
+}
+
+body.internal-portal-shell .portal-shell {
+    width: min(1180px, calc(100% - 32px)) !important;
+    max-width: 1180px !important;
+    margin: 0 auto !important;
+    padding: 42px 0 30px !important;
+}
+
+body.internal-portal-shell .hero-section {
+    display: grid !important;
+    gap: 24px !important;
+    justify-items: center !important;
+    text-align: center !important;
+}
+
+body.internal-portal-shell .search-wrap {
+    position: relative !important;
+    width: min(680px, 100%) !important;
+}
+
+body.internal-portal-shell .search-icon {
+    position: absolute !important;
+    left: 22px !important;
+    top: 50% !important;
+    color: var(--zip-muted) !important;
+    font-size: 1.25rem !important;
+    transform: translateY(-50%) !important;
+    pointer-events: none !important;
+}
+
+body.internal-portal-shell .search-wrap input {
+    width: 100% !important;
+    height: 62px !important;
+    padding: 0 22px 0 58px !important;
+    color: var(--zip-text) !important;
+    background: var(--zip-surface) !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 999px !important;
+    box-shadow: var(--zip-shadow-soft) !important;
+    outline: none !important;
+}
+
+body.internal-portal-shell .search-wrap input:focus {
+    border-color: rgba(217, 166, 46, 0.85) !important;
+    box-shadow: 0 0 0 4px rgba(217, 166, 46, 0.16), var(--zip-shadow-soft) !important;
+}
+
+body.internal-portal-shell .welcome-copy {
+    max-width: 720px !important;
+}
+
+body.internal-portal-shell .eyebrow,
+body.internal-portal-shell .internal-apps-heading p,
+body.internal-module-shell .information-panel-head p,
+body.internal-module-shell .hris-module-summary-copy > span:first-child {
+    margin: 0 0 7px !important;
+    color: var(--zip-gold) !important;
+    font-size: 0.78rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+}
+
+body.internal-portal-shell .welcome-copy h1 {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: clamp(2rem, 5vw, 3.4rem) !important;
+    line-height: 1.15 !important;
+    letter-spacing: -0.045em !important;
+}
+
+body.internal-portal-shell .welcome-copy p:last-child {
+    margin: 10px 0 0 !important;
+    color: var(--zip-muted) !important;
+    font-size: 1.05rem !important;
+}
+
+body.internal-portal-shell .summary-grid {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 16px !important;
+    margin: 4px 0 0 !important;
+}
+
+body.internal-portal-shell .summary-card {
+    min-height: 96px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 14px !important;
+    padding: 20px !important;
+    text-align: left !important;
+    background: rgba(255, 255, 255, 0.82) !important;
+    border: 1px solid rgba(223, 229, 238, 0.92) !important;
+    border-radius: var(--zip-radius-md) !important;
+    box-shadow: 0 10px 22px rgba(12, 35, 68, 0.05) !important;
+}
+
+body.internal-portal-shell .summary-icon {
+    width: 42px !important;
+    height: 42px !important;
+    display: inline-grid !important;
+    place-items: center !important;
+    flex: 0 0 auto !important;
+    color: var(--zip-navy) !important;
+    font-weight: 900 !important;
+    background: var(--zip-gold-soft) !important;
+    border: 1px solid rgba(217, 166, 46, 0.25) !important;
+    border-radius: 12px !important;
+}
+
+body.internal-portal-shell .summary-card strong {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: 0.95rem !important;
+}
+
+body.internal-portal-shell .summary-card small {
+    margin: 3px 0 0 !important;
+    color: var(--zip-muted) !important;
+    font-size: 0.92rem !important;
+}
+
+body.internal-portal-shell .apps-section {
+    width: 100% !important;
+    padding-top: 34px !important;
+    margin: 0 !important;
+}
+
+body.internal-portal-shell .section-heading {
+    display: flex !important;
+    align-items: flex-end !important;
+    justify-content: space-between !important;
+    gap: 18px !important;
+    margin-bottom: 18px !important;
+}
+
+body.internal-portal-shell .section-heading h2 {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: 1.45rem !important;
+    line-height: 1.15 !important;
+}
+
+body.internal-portal-shell .app-count {
+    margin: 0 !important;
+    color: var(--zip-muted) !important;
+    font-size: 0.9rem !important;
+    white-space: nowrap !important;
+}
+
+body.internal-portal-shell .app-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 18px !important;
+}
+
+body.internal-portal-shell .app-card {
+    position: relative !important;
+    min-height: 218px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    padding: 20px !important;
+    overflow: hidden !important;
+    background: var(--zip-surface) !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: var(--zip-radius-lg) !important;
+    box-shadow: var(--zip-shadow-card) !important;
+    color: var(--zip-text) !important;
+    text-align: left !important;
+    text-decoration: none !important;
+    outline: none !important;
+    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease !important;
+}
+
+body.internal-portal-shell .app-card[hidden] {
+    display: none !important;
+}
+
+body.internal-portal-shell .app-card::before {
+    display: none !important;
+}
+
+body.internal-portal-shell .app-card::after {
+    content: "" !important;
+    position: absolute !important;
+    inset: auto 18px 0 18px !important;
+    height: 3px !important;
+    display: block !important;
+    background: linear-gradient(90deg, var(--zip-navy), var(--zip-gold)) !important;
+    border-radius: 999px 999px 0 0 !important;
+    opacity: 0 !important;
+    transition: opacity 0.18s ease !important;
+}
+
+body.internal-portal-shell .app-card:hover,
+body.internal-portal-shell .app-card:focus-visible {
+    border-color: rgba(217, 166, 46, 0.55) !important;
+    box-shadow: 0 18px 36px rgba(12, 35, 68, 0.12) !important;
+    transform: translateY(-4px) !important;
+}
+
+body.internal-portal-shell .app-card:hover::after,
+body.internal-portal-shell .app-card:focus-visible::after {
+    opacity: 1 !important;
+}
+
+body.internal-portal-shell .card-topline {
+    width: 100% !important;
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    margin-bottom: 18px !important;
+}
+
+body.internal-portal-shell .app-icon {
+    width: 58px !important;
+    height: 58px !important;
+    display: inline-grid !important;
+    place-items: center !important;
+    flex: 0 0 auto !important;
+    font-size: 1.75rem !important;
+    line-height: 1 !important;
+    background: #eef4fb !important;
+    border: 1px solid #d9e5f2 !important;
+    border-radius: 16px !important;
+    box-shadow: none !important;
+}
+
+body.internal-portal-shell .accent-lavender .app-icon,
+body.internal-portal-shell .accent-lilac .app-icon {
+    background: #f6f0df !important;
+    border-color: #eadfbd !important;
+}
+
+body.internal-portal-shell .accent-cream .app-icon {
+    background: var(--zip-gold-soft) !important;
+    border-color: rgba(217, 166, 46, 0.28) !important;
+}
+
+body.internal-portal-shell .accent-mint .app-icon,
+body.internal-portal-shell .accent-sage .app-icon {
+    background: #eef8f4 !important;
+    border-color: #d5eee4 !important;
+}
+
+body.internal-portal-shell .accent-blue .app-icon {
+    background: #f3f5f7 !important;
+    border-color: #dde4ec !important;
+}
+
+body.internal-portal-shell .app-icon-hris,
+body.internal-portal-shell .app-icon-crm,
+body.internal-portal-shell .app-icon-drive,
+body.internal-portal-shell .app-icon-setting {
+    background: #eef4fb !important;
+    border-color: #d9e5f2 !important;
+}
+
+body.internal-portal-shell .app-icon-attendance,
+body.internal-portal-shell .app-icon-finance,
+body.internal-portal-shell .app-icon-info {
+    background: var(--zip-gold-soft) !important;
+    border-color: rgba(217, 166, 46, 0.28) !important;
+}
+
+body.internal-portal-shell .app-icon-pos,
+body.internal-portal-shell .app-icon-wms,
+body.internal-portal-shell .app-icon-sales,
+body.internal-portal-shell .app-icon-report,
+body.internal-portal-shell .app-icon-permission {
+    background: #eef8f4 !important;
+    border-color: #d5eee4 !important;
+}
+
+body.internal-portal-shell .workspace-app-icon-image,
+body.internal-module-shell img.hris-module-nav-icon {
+    opacity: 1 !important;
+    filter: brightness(0) saturate(100%) invert(13%) sepia(33%) saturate(1299%) hue-rotate(181deg) brightness(95%) contrast(96%) !important;
+}
+
+body.internal-module-shell span.hris-module-nav-icon,
+body.internal-clean-page-shell span.hris-module-nav-icon {
+    filter: none !important;
+    opacity: 1 !important;
+}
+
+body.internal-portal-shell .workspace-app-icon-image {
+    width: 30px !important;
+    height: 30px !important;
+}
+
+body.internal-portal-shell .internal-app-copy {
+    display: block !important;
+    text-align: left !important;
+}
+
+body.internal-portal-shell .internal-app-copy h3 {
+    margin: 0 0 8px !important;
+    color: var(--zip-navy) !important;
+    font-size: 1.05rem !important;
+    line-height: 1.28 !important;
+}
+
+body.internal-portal-shell .internal-app-copy small {
+    display: block !important;
+    margin: 0 0 18px !important;
+    color: var(--zip-muted) !important;
+    font-size: 0.92rem !important;
+    line-height: 1.45 !important;
+}
+
+body.internal-portal-shell .app-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    min-height: 26px !important;
+    margin: 0 !important;
+    padding: 5px 10px !important;
+    border-radius: 999px !important;
+    color: var(--zip-navy) !important;
+    background: #f1f5f9 !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: none !important;
+    font-size: 0.74rem !important;
+    font-weight: 800 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+}
+
+body.internal-portal-shell .app-badge.tone-green {
+    color: var(--zip-success) !important;
+    background: #eaf8f2 !important;
+    border-color: #ccebdd !important;
+}
+
+body.internal-portal-shell .app-badge.tone-amber {
+    color: var(--zip-warning) !important;
+    background: #fff4df !important;
+    border-color: #f3d49b !important;
+}
+
+body.internal-portal-shell .empty-state {
+    margin: 24px 0 0 !important;
+    padding: 22px !important;
+    color: var(--zip-muted) !important;
+    text-align: center !important;
+    background: rgba(255, 255, 255, 0.78) !important;
+    border: 1px dashed var(--zip-border) !important;
+    border-radius: var(--zip-radius-md) !important;
+}
+
+body.internal-module-shell .breadcrumb-bar {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: rgba(255, 255, 255, 0.94) !important;
+    border-bottom: 1px solid var(--zip-border) !important;
+}
+
+body.internal-module-shell .breadcrumb-list {
+    width: min(1500px, calc(100% - 40px)) !important;
+    min-height: 54px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    color: var(--zip-muted) !important;
+    font-size: 0.92rem !important;
+    list-style: none !important;
+}
+
+body.internal-module-shell .breadcrumb-list li {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+}
+
+body.internal-module-shell .breadcrumb-list li + li::before {
+    content: "/" !important;
+    color: #9aa4b2 !important;
+}
+
+body.internal-module-shell .breadcrumb-list a {
+    color: var(--zip-navy) !important;
+    font-weight: 700 !important;
+    text-decoration: none !important;
+}
+
+body.internal-module-shell .module-layout {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: 260px minmax(0, 1fr) !important;
+    gap: 22px !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+}
+
+body.internal-module-shell .info-sidebar {
+    align-self: start !important;
+    position: sticky !important;
+    top: 100px !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    background: var(--zip-surface) !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 10px 24px rgba(12, 35, 68, 0.05) !important;
+}
+
+body.internal-module-shell .information-sidebar-card {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body.internal-module-shell .sidebar-title {
+    padding: 18px 20px 16px !important;
+    border-bottom: 1px solid var(--zip-border) !important;
+}
+
+body.internal-module-shell .hris-module-summary-copy strong {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: 1.1rem !important;
+    line-height: 1.2 !important;
+}
+
+body.internal-module-shell .sidebar-menu {
+    display: grid !important;
+    gap: 0 !important;
+    padding: 0 !important;
+}
+
+body.internal-module-shell .sidebar-link {
+    width: 100% !important;
+    min-height: 56px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 13px 18px !important;
+    color: #344054 !important;
+    text-align: left !important;
+    background: #fff !important;
+    border: 0 !important;
+    border-bottom: 1px solid #edf1f5 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    text-decoration: none !important;
+    transition: background-color 0.18s ease, color 0.18s ease !important;
+}
+
+body.internal-module-shell .sidebar-link:last-child {
+    border-bottom: 0 !important;
+}
+
+body.internal-module-shell .sidebar-link:hover,
+body.internal-module-shell .sidebar-link:focus-visible {
+    color: var(--zip-navy) !important;
+    background: #f7f9fc !important;
+    outline: none !important;
+}
+
+body.internal-module-shell .sidebar-link.active,
+body.internal-module-shell .sidebar-link.is-active {
+    color: #fff !important;
+    background: var(--zip-navy) !important;
+}
+
+body.internal-module-shell .sidebar-link h2 {
+    margin: 0 !important;
+    color: inherit !important;
+    font-size: 0.92rem !important;
+    font-weight: 700 !important;
+    line-height: 1.25 !important;
+}
+
+body.internal-module-shell .sidebar-link small {
+    display: block !important;
+    margin-top: 1px !important;
+    color: currentColor !important;
+    font-size: 0.76rem !important;
+    opacity: 0.72 !important;
+}
+
+body.internal-module-shell .sidebar-icon {
+    width: 24px !important;
+    height: 24px !important;
+    flex: 0 0 24px !important;
+    object-fit: contain !important;
+}
+
+body.internal-module-shell .sidebar-link.active .sidebar-icon,
+body.internal-module-shell .sidebar-link.is-active .sidebar-icon,
+body.internal-module-shell .sidebar-link:hover .sidebar-icon {
+    filter: brightness(0) invert(1) !important;
+}
+
+body.internal-module-shell .content-panel {
+    min-width: 0 !important;
+    min-height: 720px !important;
+    padding: clamp(24px, 3vw, 34px) !important;
+    background: rgba(255, 255, 255, 0.96) !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 10px !important;
+    box-shadow: var(--zip-shadow-panel) !important;
+}
+
+body.internal-module-shell .content-header {
+    margin-bottom: 22px !important;
+}
+
+body.internal-module-shell .information-panel-head h1 {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: clamp(1.8rem, 3vw, 2.45rem) !important;
+    line-height: 1.15 !important;
+}
+
+body.internal-module-shell .information-panel-head span {
+    display: block !important;
+    max-width: 760px !important;
+    margin: 12px 0 0 !important;
+    color: var(--zip-muted) !important;
+    font-size: 1rem !important;
+}
+
+body.internal-module-shell .card-grid-two {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 14px !important;
+}
+
+body.internal-module-shell .content-card {
+    min-height: 108px !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    gap: 16px !important;
+    padding: 18px !important;
+    background: var(--zip-surface-soft) !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    color: var(--zip-text) !important;
+    text-decoration: none !important;
+}
+
+body.internal-module-shell .content-card.is-featured {
+    border-color: rgba(217, 166, 46, 0.46) !important;
+    background: #fff !important;
+    box-shadow: 0 10px 22px rgba(217, 166, 46, 0.08) !important;
+}
+
+body.internal-module-shell .information-policy-scope {
+    display: block !important;
+    margin-bottom: 12px !important;
+    color: var(--zip-muted) !important;
+    font-size: 0.78rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.04em !important;
+    text-transform: uppercase !important;
+}
+
+body.internal-module-shell .content-card h2 {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: 1.02rem !important;
+    line-height: 1.3 !important;
+}
+
+body.internal-module-shell .content-card p {
+    margin: 9px 0 0 !important;
+    color: var(--zip-muted) !important;
+    font-size: 0.92rem !important;
+}
+
+body.internal-module-shell .information-policy-badge {
+    min-height: 26px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    padding: 4px 10px !important;
+    border-radius: 999px !important;
+    font-size: 0.75rem !important;
+    font-weight: 800 !important;
+    white-space: nowrap !important;
+}
+
+body.internal-module-shell .information-policy-badge.tone-green {
+    color: var(--zip-success) !important;
+    background: #eaf8f2 !important;
+    border: 1px solid #ccebdd !important;
+}
+
+body.internal-module-shell .information-policy-badge.tone-blue {
+    color: var(--zip-info) !important;
+    background: #fff4df !important;
+    border: 1px solid rgba(217, 166, 46, 0.32) !important;
+}
+
+body.internal-module-shell .information-policy-badge.tone-amber {
+    color: var(--zip-warning) !important;
+    background: #fff4df !important;
+    border: 1px solid #f3d49b !important;
+}
+
+body.internal-module-shell .internal-module-footer {
+    width: min(1500px, calc(100% - 40px)) !important;
+    margin: 0 auto !important;
+    padding: 0 16px 26px !important;
+    color: var(--zip-muted) !important;
+    font-size: 0.82rem !important;
+    text-align: center !important;
+}
+
+body.internal-module-shell .information-toast {
+    position: fixed !important;
+    right: 22px !important;
+    bottom: 22px !important;
+    z-index: 90 !important;
+    max-width: min(400px, calc(100vw - 44px)) !important;
+    padding: 14px 16px !important;
+    color: #fff !important;
+    background: var(--zip-navy) !important;
+    border-left: 4px solid var(--zip-gold) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 18px 38px rgba(12, 35, 68, 0.22) !important;
+}
+
+@media (max-width: 1024px) {
+    body.internal-portal-shell .app-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 1100px) {
+    body.internal-module-shell .module-layout {
+        grid-template-columns: 220px minmax(0, 1fr) !important;
+    }
+}
+
+@media (max-width: 760px) {
+    body.internal-portal-shell .site-header,
+    body.internal-module-shell .module-header {
+        grid-template-columns: minmax(0, 1fr) auto !important;
+        grid-template-areas:
+            "brand user"
+            "center center" !important;
+        gap: 14px !important;
+        padding: 12px !important;
+    }
+
+    body.internal-portal-shell .brand,
+    body.internal-module-shell .brand {
+        grid-area: brand !important;
+        gap: 10px !important;
+    }
+
+    body.internal-portal-shell .header-center-logo,
+    body.internal-module-shell .header-center-logo {
+        grid-area: center !important;
+        width: min(240px, 72vw) !important;
+        height: 42px !important;
+        margin-inline: auto !important;
+    }
+
+    body.internal-portal-shell .user-nav,
+    body.internal-module-shell .user-nav {
+        grid-area: user !important;
+    }
+
+    body.internal-portal-shell .portal-shell {
+        width: min(100% - 24px, 1180px) !important;
+        padding-top: 28px !important;
+    }
+
+    body.internal-portal-shell .summary-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    body.internal-portal-shell .section-heading {
+        align-items: flex-start !important;
+        flex-direction: column !important;
+    }
+
+    body.internal-module-shell .breadcrumb-list,
+    body.internal-module-shell .page-content,
+    body.internal-module-shell .internal-module-footer {
+        width: min(100% - 24px, 1500px) !important;
+    }
+
+    body.internal-module-shell .module-layout {
+        grid-template-columns: 1fr !important;
+        gap: 14px !important;
+    }
+
+    body.internal-module-shell .info-sidebar {
+        position: static !important;
+    }
+
+    body.internal-module-shell .sidebar-title {
+        display: none !important;
+    }
+
+    body.internal-module-shell .sidebar-menu {
+        display: flex !important;
+        gap: 8px !important;
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        padding: 10px !important;
+    }
+
+    body.internal-module-shell .sidebar-link {
+        width: auto !important;
+        min-width: max-content !important;
+        min-height: 42px !important;
+        flex: 0 0 auto !important;
+        padding: 9px 12px !important;
+        border: 1px solid var(--zip-border) !important;
+        border-radius: 8px !important;
+    }
+
+    body.internal-module-shell .content-panel {
+        min-height: auto !important;
+        padding: 20px !important;
+    }
+
+    body.internal-module-shell .card-grid-two {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+@media (max-width: 560px) {
+    body.internal-portal-shell .brand-divider,
+    body.internal-module-shell .brand-divider,
+    body.internal-portal-shell .brand-logo-wide,
+    body.internal-module-shell .brand-logo-wide,
+    body.internal-portal-shell .profile-name,
+    body.internal-module-shell .profile-name {
+        display: none !important;
+    }
+
+    body.internal-portal-shell .app-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    body.internal-portal-shell .app-card {
+        min-height: 190px !important;
+    }
+}
+
+/* Final high-specificity module tuning so the older dashboard stylesheet cannot
+   inflate the ZIP-inspired sub-pages. */
+html[data-theme] body.internal-module-shell .page-content.hris-clean-shell,
+html[data-theme] body.internal-module-shell .breadcrumb-list,
+html[data-theme] body.internal-module-shell .internal-module-footer {
+    width: min(calc(100% - 64px), 1248px) !important;
+    max-width: 1248px !important;
+}
+
+html[data-theme] body.internal-module-shell .page-content.hris-clean-shell {
+    margin: 0 auto !important;
+    padding: 0 0 34px !important;
+}
+
+html[data-theme] body.internal-module-shell .breadcrumb-bar {
+    width: 100% !important;
+    margin: 0 !important;
+}
+
+html[data-theme] body.internal-module-shell .breadcrumb-list {
+    min-height: 54px !important;
+    padding: 0 !important;
+    font-size: 0.82rem !important;
+}
+
+html[data-theme] body.internal-module-shell .module-layout,
+html[data-theme] body.internal-module-shell .internal-module-layout {
+    width: 100% !important;
+    grid-template-columns: 216px minmax(0, 1fr) !important;
+    gap: 18px !important;
+    align-items: start !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+}
+
+html[data-theme] body.internal-module-shell .info-sidebar,
+html[data-theme] body.internal-module-shell .hris-module-disclosure,
+html[data-theme] body.internal-module-shell .information-sidebar-card {
+    width: 216px !important;
+    border-radius: 7px !important;
+    background: #ffffff !important;
+    border: 1px solid var(--zip-border) !important;
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.07) !important;
+}
+
+html[data-theme] body.internal-module-shell .info-sidebar {
+    top: 92px !important;
+}
+
+html[data-theme] body.internal-module-shell .information-sidebar-card {
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+html[data-theme] body.internal-module-shell .information-sidebar-head,
+html[data-theme] body.internal-module-shell .sidebar-title {
+    min-height: 64px !important;
+    padding: 16px 16px 14px !important;
+    border-bottom: 1px solid #edf1f6 !important;
+    background: #ffffff !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-module-summary-copy {
+    display: grid !important;
+    gap: 4px !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-module-summary-copy > span:first-child {
+    margin: 0 !important;
+    color: var(--zip-gold) !important;
+    font-size: 0.67rem !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.14em !important;
+    text-transform: uppercase !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-module-summary-copy strong {
+    color: var(--zip-navy) !important;
+    font-size: 0.98rem !important;
+    line-height: 1.16 !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-module-summary-body {
+    margin-top: 0 !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-menu,
+html[data-theme] body.internal-module-shell .hris-module-grid {
+    display: grid !important;
+    gap: 0 !important;
+    padding: 0 !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-link,
+html[data-theme] body.internal-module-shell .hris-module-card {
+    min-height: 46px !important;
+    padding: 0 15px 0 17px !important;
+    gap: 12px !important;
+    border: 0 !important;
+    border-bottom: 1px solid #edf1f6 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    color: #4f6075 !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-link:last-child,
+html[data-theme] body.internal-module-shell .hris-module-card:last-child {
+    border-bottom: 0 !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-link h2,
+html[data-theme] body.internal-module-shell .hris-module-card h2 {
+    margin: 0 !important;
+    color: inherit !important;
+    font-size: 0.82rem !important;
+    font-weight: 650 !important;
+    line-height: 1.18 !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-link small,
+html[data-theme] body.internal-module-shell .hris-module-card small {
+    margin: 0 !important;
+    color: inherit !important;
+    font-size: 0.65rem !important;
+    line-height: 1.1 !important;
+    opacity: 0.72 !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-icon,
+html[data-theme] body.internal-module-shell .hris-module-nav-icon {
+    width: 15px !important;
+    height: 15px !important;
+    flex: 0 0 15px !important;
+    object-fit: contain !important;
+    opacity: 0.72 !important;
+    filter: brightness(0) saturate(100%) invert(24%) sepia(17%) saturate(1041%) hue-rotate(178deg) brightness(91%) contrast(87%) !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-link.active,
+html[data-theme] body.internal-module-shell .sidebar-link.is-active,
+html[data-theme] body.internal-module-shell .hris-module-card.active,
+html[data-theme] body.internal-module-shell .hris-module-card.is-active {
+    background: var(--zip-navy) !important;
+    color: #ffffff !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-link:hover,
+html[data-theme] body.internal-module-shell .hris-module-card:hover {
+    background: #f7f9fc !important;
+    color: var(--zip-navy) !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-link.active:hover,
+html[data-theme] body.internal-module-shell .sidebar-link.is-active:hover,
+html[data-theme] body.internal-module-shell .hris-module-card.active:hover,
+html[data-theme] body.internal-module-shell .hris-module-card.is-active:hover {
+    background: var(--zip-navy) !important;
+    color: #ffffff !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-link.active .sidebar-icon,
+html[data-theme] body.internal-module-shell .sidebar-link.is-active .sidebar-icon,
+html[data-theme] body.internal-module-shell .hris-module-card.active .hris-module-nav-icon,
+html[data-theme] body.internal-module-shell .hris-module-card.is-active .hris-module-nav-icon {
+    opacity: 0.95 !important;
+    filter: brightness(0) invert(1) !important;
+}
+
+html[data-theme] body.internal-module-shell .content-panel,
+html[data-theme] body.internal-module-shell .internal-module-panel,
+html[data-theme] body.internal-module-shell .information-panel {
+    min-height: 598px !important;
+    padding: 40px 28px 34px !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 7px !important;
+    background: #ffffff !important;
+    box-shadow: 0 20px 42px rgba(15, 23, 42, 0.075) !important;
+}
+
+html[data-theme] body.internal-module-shell .information-panel-head,
+html[data-theme] body.internal-module-shell .content-header {
+    max-width: 720px !important;
+    margin-bottom: 18px !important;
+}
+
+html[data-theme] body.internal-module-shell .information-panel-head p,
+html[data-theme] body.internal-module-shell .content-header p:first-child {
+    margin: 0 0 4px !important;
+    color: #6f7f93 !important;
+    font-size: 0.72rem !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.16em !important;
+    text-transform: uppercase !important;
+}
+
+html[data-theme] body.internal-module-shell .information-panel-head h1,
+html[data-theme] body.internal-module-shell .content-header h1 {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: clamp(2rem, 3vw, 2.34rem) !important;
+    line-height: 1.03 !important;
+    letter-spacing: -0.045em !important;
+}
+
+html[data-theme] body.internal-module-shell .information-panel-head span,
+html[data-theme] body.internal-module-shell .content-header span {
+    display: block !important;
+    margin-top: 12px !important;
+    color: #6f7f93 !important;
+    font-size: 0.9rem !important;
+    line-height: 1.55 !important;
+}
+
+html[data-theme] body.internal-module-shell .information-policy-grid,
+html[data-theme] body.internal-module-shell .card-grid-two {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+}
+
+html[data-theme] body.internal-module-shell .information-policy-card,
+html[data-theme] body.internal-module-shell .content-card {
+    min-height: 108px !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    gap: 16px !important;
+    padding: 18px 16px !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 7px !important;
+    background: #fbfcfe !important;
+    box-shadow: none !important;
+    text-decoration: none !important;
+}
+
+html[data-theme] body.internal-module-shell .information-policy-card.is-featured,
+html[data-theme] body.internal-module-shell .content-card.is-featured {
+    border-color: #dccb9a !important;
+    background: #ffffff !important;
+    box-shadow: 0 10px 22px rgba(198, 167, 88, 0.08) !important;
+}
+
+html[data-theme] body.internal-module-shell .information-policy-scope {
+    display: block !important;
+    margin-bottom: 12px !important;
+    color: #7b8798 !important;
+    font-size: 0.68rem !important;
+    font-weight: 750 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+}
+
+html[data-theme] body.internal-module-shell .information-policy-card h2,
+html[data-theme] body.internal-module-shell .content-card h2 {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: 0.86rem !important;
+    line-height: 1.35 !important;
+}
+
+html[data-theme] body.internal-module-shell .information-policy-card p,
+html[data-theme] body.internal-module-shell .content-card p {
+    margin: 8px 0 0 !important;
+    color: #6f7f93 !important;
+    font-size: 0.82rem !important;
+    line-height: 1.45 !important;
+}
+
+html[data-theme] body.internal-module-shell .information-policy-badge {
+    height: 24px !important;
+    min-height: 24px !important;
+    padding: 0 10px !important;
+    font-size: 0.68rem !important;
+}
+
+@media (max-width: 1080px) {
+    html[data-theme] body.internal-module-shell .page-content.hris-clean-shell,
+    html[data-theme] body.internal-module-shell .breadcrumb-list,
+    html[data-theme] body.internal-module-shell .internal-module-footer {
+        width: min(calc(100% - 28px), 1248px) !important;
+    }
+
+    html[data-theme] body.internal-module-shell .module-layout,
+    html[data-theme] body.internal-module-shell .internal-module-layout {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    html[data-theme] body.internal-module-shell .info-sidebar,
+    html[data-theme] body.internal-module-shell .hris-module-disclosure,
+    html[data-theme] body.internal-module-shell .information-sidebar-card {
+        width: 100% !important;
+    }
+
+    html[data-theme] body.internal-module-shell .sidebar-menu,
+    html[data-theme] body.internal-module-shell .hris-module-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 640px) {
+    html[data-theme] body.internal-module-shell .sidebar-menu,
+    html[data-theme] body.internal-module-shell .hris-module-grid,
+    html[data-theme] body.internal-module-shell .information-policy-grid,
+    html[data-theme] body.internal-module-shell .card-grid-two {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    html[data-theme] body.internal-module-shell .content-panel,
+    html[data-theme] body.internal-module-shell .internal-module-panel,
+    html[data-theme] body.internal-module-shell .information-panel {
+        min-height: 0 !important;
+        padding: 18px !important;
+    }
+}
+
+/* Working HRIS pages: keep the functional pages close to the ZIP reference and
+   prevent older dashboard styles from turning module cards into oversized tiles. */
+html[data-theme] body.internal-module-shell .hris-clean-shell .hris-module-summary-note,
+html[data-theme] body.internal-module-shell .hris-clean-shell .hris-module-summary-meta,
+html[data-theme] body.internal-module-shell .hris-clean-shell .hris-module-card > .badge {
+    display: none !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .internal-module-panel {
+    display: block !important;
+    overflow: visible !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .summary,
+html[data-theme] body.internal-module-shell .hris-clean-shell .meta-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    margin: 0 0 14px !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .summary + .meta-grid {
+    margin-top: 0 !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell :is(.card-mini, .meta-card) {
+    min-height: 70px !important;
+    padding: 14px 16px !important;
+    border: 1px solid var(--zip-border) !important;
+    border-top: 3px solid #78c7ff !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    color: var(--zip-navy) !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .meta-card {
+    border-top-color: var(--zip-border) !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell :is(.card-mini p, .meta-card span) {
+    margin: 0 0 10px !important;
+    color: #6f7f93 !important;
+    font-size: 0.68rem !important;
+    font-weight: 850 !important;
+    letter-spacing: 0.13em !important;
+    line-height: 1.25 !important;
+    text-transform: uppercase !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .card-mini h3 {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: clamp(1.35rem, 2.2vw, 1.75rem) !important;
+    line-height: 1 !important;
+    letter-spacing: -0.055em !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .meta-card strong {
+    color: var(--zip-navy) !important;
+    font-size: 0.88rem !important;
+    line-height: 1.22 !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .top-bar {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(160px, 0.88fr) !important;
+    gap: 10px !important;
+    margin: 16px 0 !important;
+    padding: 16px !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 12px !important;
+    background: #eef3f8 !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .top-bar > * {
+    width: 100% !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell :is(input, select, textarea) {
+    min-height: 46px !important;
+    border: 1px solid #d7e1ed !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    color: var(--zip-navy) !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell button:not(.ghost-button):not(.recruitment-workspace-card),
+html[data-theme] body.internal-module-shell .hris-clean-shell .button-primary {
+    min-height: 46px !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: linear-gradient(135deg, #1957ad 0%, #4bb0ff 100%) !important;
+    color: #ffffff !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell :is(.table-box, .form-box, .box, .panel, details.panel-disclosure) {
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .section-title {
+    align-items: flex-start !important;
+    margin: 0 0 12px !important;
+    gap: 12px !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .section-title h2,
+html[data-theme] body.internal-module-shell .hris-clean-shell .section-title h3 {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: 0.98rem !important;
+    line-height: 1.2 !important;
+    letter-spacing: -0.02em !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .section-title p,
+html[data-theme] body.internal-module-shell .hris-clean-shell .helper-text,
+html[data-theme] body.internal-module-shell .hris-clean-shell small {
+    color: #6f7f93 !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .recruitment-workspace {
+    margin: 16px 0 0 !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .recruitment-workspace-grid,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-workspace-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell :is(.recruitment-workspace-card, .biometric-workspace-card) {
+    position: relative !important;
+    display: grid !important;
+    grid-template-columns: auto minmax(0, 1fr) auto !important;
+    align-items: start !important;
+    min-height: 108px !important;
+    height: auto !important;
+    width: 100% !important;
+    padding: 17px 16px !important;
+    gap: 14px !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 7px !important;
+    background: #fbfcfe !important;
+    color: var(--zip-navy) !important;
+    box-shadow: none !important;
+    text-align: left !important;
+    overflow: hidden !important;
+    transform: none !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell :is(.recruitment-workspace-card, .biometric-workspace-card)::before,
+html[data-theme] body.internal-module-shell .hris-clean-shell :is(.recruitment-workspace-card, .biometric-workspace-card)::after {
+    display: none !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell :is(.recruitment-workspace-card:hover, .biometric-workspace-card:hover, .recruitment-workspace-card.active, .biometric-workspace-card.active) {
+    border-color: #dccb9a !important;
+    background: #ffffff !important;
+    box-shadow: 0 10px 22px rgba(198, 167, 88, 0.08) !important;
+    transform: none !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .recruitment-workspace-icon,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-mark {
+    display: grid !important;
+    place-items: center !important;
+    width: 42px !important;
+    height: 42px !important;
+    flex: 0 0 42px !important;
+    border-radius: 13px !important;
+    border: 1px solid #f1dfb0 !important;
+    background: var(--zip-gold-soft) !important;
+    color: var(--zip-navy) !important;
+    font-size: 0.88rem !important;
+    font-weight: 850 !important;
+    line-height: 1 !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-mark-core {
+    color: inherit !important;
+    font-size: 0.78rem !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-mark-dot,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-stage-orbit {
+    display: none !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .recruitment-workspace-copy,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-copy {
+    min-width: 0 !important;
+    display: grid !important;
+    gap: 8px !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .recruitment-workspace-copy strong,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-copy strong {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: 0.9rem !important;
+    line-height: 1.3 !important;
+    letter-spacing: -0.015em !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .recruitment-workspace-copy small,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-copy small {
+    margin: 0 !important;
+    color: #6f7f93 !important;
+    font-size: 0.8rem !important;
+    line-height: 1.42 !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .recruitment-workspace-badge,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-badge {
+    position: static !important;
+    align-self: start !important;
+    grid-column: 3 !important;
+    justify-self: end !important;
+    height: 24px !important;
+    min-height: 24px !important;
+    padding: 0 10px !important;
+    border: 1px solid #d8e4f2 !important;
+    border-radius: 999px !important;
+    background: #eef6ff !important;
+    color: var(--zip-navy) !important;
+    font-size: 0.68rem !important;
+    font-weight: 850 !important;
+    line-height: 22px !important;
+    white-space: nowrap !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-head {
+    display: contents !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-eyebrow,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-copy,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-points,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-footer {
+    grid-column: 2 / -1 !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-eyebrow {
+    margin: 0 0 -4px !important;
+    color: #7b8798 !important;
+    font-size: 0.66rem !important;
+    font-weight: 850 !important;
+    letter-spacing: 0.1em !important;
+    text-transform: uppercase !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-points {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    margin: 0 !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-points span {
+    min-height: 22px !important;
+    padding: 4px 8px !important;
+    border-radius: 999px !important;
+    background: #f1f6fb !important;
+    color: #52657c !important;
+    font-size: 0.65rem !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-module-footer {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 10px !important;
+    color: #6f7f93 !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .recruitment-workspace-panel {
+    margin-top: 12px !important;
+    overflow: hidden !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .recruitment-workspace-panel > summary,
+html[data-theme] body.internal-module-shell .hris-clean-shell .panel-summary {
+    min-height: 60px !important;
+    padding: 16px 18px !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .empty-state {
+    min-height: 94px !important;
+    border: 1px dashed #cbd6e3 !important;
+    border-radius: 12px !important;
+    background: #f8fafc !important;
+    color: #64748b !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-workspace-hero,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-workspace-focus-card,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-action-panel,
+html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-data-card {
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+}
+
+@media (max-width: 1180px) {
+    html[data-theme] body.internal-module-shell .hris-clean-shell .summary,
+    html[data-theme] body.internal-module-shell .hris-clean-shell .meta-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    html[data-theme] body.internal-module-shell .hris-clean-shell .top-bar,
+    html[data-theme] body.internal-module-shell .hris-clean-shell .recruitment-workspace-grid,
+    html[data-theme] body.internal-module-shell .hris-clean-shell .biometric-workspace-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+}
+
+@media (max-width: 640px) {
+    html[data-theme] body.internal-module-shell .hris-clean-shell .summary,
+    html[data-theme] body.internal-module-shell .hris-clean-shell .meta-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    html[data-theme] body.internal-module-shell .hris-clean-shell :is(.recruitment-workspace-card, .biometric-workspace-card) {
+        grid-template-columns: auto minmax(0, 1fr) !important;
+    }
+
+    html[data-theme] body.internal-module-shell .hris-clean-shell :is(.recruitment-workspace-badge, .biometric-module-badge) {
+        grid-column: 2 !important;
+        justify-self: start !important;
+    }
+}
+
+/* Shared internal pages outside HRIS and POS. This keeps WMS, attendance,
+   approvals, report, schedule, CRM, and admin utility pages in the same clean
+   visual system without touching the kasir/POS shell. */
+html[data-theme] body.internal-clean-page-shell {
+    --zip-navy: #0c2344;
+    --zip-gold: #d9a62e;
+    --zip-gold-soft: #fff4d8;
+    --zip-bg: #f4f6f9;
+    --zip-surface: #ffffff;
+    --zip-border: #dfe5ee;
+    --zip-text: #172033;
+    --zip-muted: #667085;
+    color: var(--zip-text) !important;
+    background:
+        radial-gradient(circle at top left, rgba(217, 166, 46, 0.08), transparent 30rem),
+        #eef1f5 !important;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}
+
+html[data-theme] body.internal-clean-page-shell::before {
+    display: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .layout {
+    display: block !important;
+    min-height: 100vh !important;
+    background: transparent !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .sidebar,
+html[data-theme] body.internal-clean-page-shell .desktop-sidebar-toggle,
+html[data-theme] body.internal-clean-page-shell .mobile-nav,
+html[data-theme] body.internal-clean-page-shell .mobile-dock,
+html[data-theme] body.internal-clean-page-shell .floating-toolbelt,
+html[data-theme] body.internal-clean-page-shell .notification-center-root,
+html[data-theme] body.internal-clean-page-shell .attendance-camera-shortcut-root,
+html[data-theme] body.internal-clean-page-shell .chat-widget-root,
+html[data-theme] body.internal-clean-page-shell .app-version-badge {
+    display: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .main {
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 0 0 34px !important;
+    gap: 0 !important;
+    background: transparent !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .module-header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 80 !important;
+    min-height: 68px !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important;
+    align-items: center !important;
+    gap: 18px !important;
+    padding: 0 48px !important;
+    border-bottom: 1px solid var(--zip-border) !important;
+    background: rgba(255, 255, 255, 0.96) !important;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.04) !important;
+    backdrop-filter: blur(14px) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .brand,
+html[data-theme] body.internal-clean-page-shell .user-nav,
+html[data-theme] body.internal-clean-page-shell .profile-button,
+html[data-theme] body.internal-clean-page-shell .notification-button {
+    display: inline-flex !important;
+    align-items: center !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .brand {
+    justify-self: start !important;
+    gap: 12px !important;
+    min-width: 0 !important;
+    text-decoration: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .user-nav {
+    justify-self: end !important;
+    gap: 10px !important;
+    min-width: 0 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .brand-logo {
+    min-height: 42px !important;
+    padding: 0 22px !important;
+    border-radius: 10px !important;
+    border: 1px solid var(--zip-border) !important;
+    background: #ffffff !important;
+    color: var(--zip-navy) !important;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.04) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .brand-fallback {
+    color: var(--zip-navy) !important;
+    font-size: 0.78rem !important;
+    font-weight: 850 !important;
+    letter-spacing: -0.01em !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .brand-divider {
+    width: 1px !important;
+    height: 30px !important;
+    background: #dfe5ee !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .header-center-logo {
+    justify-self: center !important;
+    display: inline-grid !important;
+    place-items: center !important;
+    width: 128px !important;
+    height: 54px !important;
+    text-decoration: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .header-center-logo img {
+    display: block !important;
+    width: 118px !important;
+    max-height: 50px !important;
+    object-fit: contain !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .notification-button,
+html[data-theme] body.internal-clean-page-shell .profile-button {
+    position: relative !important;
+    min-height: 42px !important;
+    border: 1px solid var(--zip-border) !important;
+    background: #ffffff !important;
+    color: var(--zip-navy) !important;
+    text-decoration: none !important;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.04) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .notification-button {
+    width: 42px !important;
+    justify-content: center !important;
+    border-radius: 999px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .notification-dot {
+    position: absolute !important;
+    top: 9px !important;
+    right: 10px !important;
+    width: 6px !important;
+    height: 6px !important;
+    border-radius: 999px !important;
+    background: #f7bd3b !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .profile-button {
+    gap: 10px !important;
+    padding: 0 10px 0 16px !important;
+    border-radius: 999px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .profile-name {
+    color: var(--zip-navy) !important;
+    font-size: 0.82rem !important;
+    font-weight: 850 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .avatar {
+    display: grid !important;
+    place-items: center !important;
+    width: 28px !important;
+    height: 28px !important;
+    border-radius: 999px !important;
+    background: var(--zip-navy) !important;
+    color: #ffffff !important;
+    font-size: 0.76rem !important;
+    font-weight: 850 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-hero,
+html[data-theme] body.internal-clean-page-shell .page-content {
+    width: min(calc(100% - 64px), 1440px) !important;
+    max-width: 1440px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-hero {
+    min-height: auto !important;
+    display: flex !important;
+    align-items: end !important;
+    justify-content: space-between !important;
+    gap: 18px !important;
+    padding: 28px 0 18px !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-hero-text {
+    max-width: 760px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-eyebrow {
+    margin: 0 0 4px !important;
+    color: var(--zip-gold) !important;
+    font-size: 0.72rem !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.16em !important;
+    text-transform: uppercase !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-hero h1 {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: clamp(1.65rem, 2.6vw, 2.25rem) !important;
+    line-height: 1.05 !important;
+    letter-spacing: -0.055em !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-actions {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 10px !important;
+    flex-wrap: wrap !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-content {
+    padding: 0 0 34px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-content-bleed {
+    width: min(calc(100% - 64px), 1520px) !important;
+    max-width: 1520px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.wms-page-stack, .stock-page-shell, .dashboard-shell, .crm-shell) {
+    display: grid !important;
+    gap: 16px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .dashboard-cards,
+    .dashboard-aging-grid,
+    .stock-summary-grid,
+    .products-meta-grid,
+    .summary,
+    .meta-grid,
+    .cards,
+    .wms-kpi-grid,
+    .wms-step-grid,
+    .wms-command-grid
+) {
+    display: grid !important;
+    gap: 12px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.summary, .meta-grid) {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.dashboard-cards, .wms-kpi-grid) {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .wms-command-grid,
+html[data-theme] body.internal-clean-page-shell .wms-step-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.card, .card-mini, .meta-card, .wms-command-card, .wms-step-card, .wms-kpi-card, .stock-mini-card) {
+    min-height: 82px !important;
+    padding: 16px 18px !important;
+    border: 1px solid var(--zip-border) !important;
+    border-top: 3px solid #78c7ff !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    color: var(--zip-navy) !important;
+    box-shadow: none !important;
+    text-decoration: none !important;
+    transform: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.wms-command-card, .wms-step-card) {
+    min-height: 116px !important;
+    background:
+        linear-gradient(135deg, #ffffff 0%, #ffffff 58%, #eef8ff 100%) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.card:hover, .wms-command-card:hover, .wms-step-card:hover) {
+    border-color: #dccb9a !important;
+    box-shadow: 0 10px 22px rgba(198, 167, 88, 0.08) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.card p, .card-mini p, .meta-card span, .wms-command-card span, .wms-step-card span, .wms-kpi-card span, .stock-mini-topline p) {
+    margin: 0 0 10px !important;
+    color: #6f7f93 !important;
+    font-size: 0.68rem !important;
+    font-weight: 850 !important;
+    letter-spacing: 0.13em !important;
+    line-height: 1.25 !important;
+    text-transform: uppercase !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.card h2, .card-mini h3, .meta-card strong, .wms-kpi-card strong) {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: clamp(1.35rem, 2vw, 1.75rem) !important;
+    line-height: 1 !important;
+    letter-spacing: -0.055em !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.wms-command-card strong, .wms-step-card strong) {
+    display: block !important;
+    margin: 0 0 8px !important;
+    color: var(--zip-navy) !important;
+    font-size: 0.96rem !important;
+    line-height: 1.28 !important;
+    letter-spacing: -0.02em !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.wms-command-card p, .wms-step-card p, .wms-kpi-card small, .helper-text, small) {
+    color: #6f7f93 !important;
+    font-size: 0.82rem !important;
+    line-height: 1.48 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.table-box, .form-box, .box, .import-box, .panel, details.panel-disclosure, .wms-split-band, .wms-filter-band, .workspace-switch) {
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.form-box, .table-box, .box, .import-box, .panel) {
+    padding: 18px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .workspace-switch {
+    display: inline-flex !important;
+    width: fit-content !important;
+    gap: 6px !important;
+    padding: 6px !important;
+    background: #eef3f8 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .workspace-switch a {
+    min-height: 34px !important;
+    padding: 8px 14px !important;
+    border-radius: 7px !important;
+    color: #52657c !important;
+    font-size: 0.78rem !important;
+    font-weight: 850 !important;
+    text-decoration: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .workspace-switch a.active {
+    background: var(--zip-navy) !important;
+    color: #ffffff !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.top-bar, .products-filter-bar, .stock-filter-bar, #soFilterForm, .schedule-filter-bar) {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)) !important;
+    gap: 10px !important;
+    padding: 16px !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 12px !important;
+    background: #eef3f8 !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(input, select, textarea, .pill-select) {
+    min-height: 46px !important;
+    border: 1px solid #d7e1ed !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    color: var(--zip-navy) !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(button, .btn-link, .ghost-button, .button-primary) {
+    min-height: 42px !important;
+    border-radius: 999px !important;
+    font-weight: 850 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell button:not(.ghost-button):not(.btn-link),
+html[data-theme] body.internal-clean-page-shell .button-primary {
+    border: 0 !important;
+    background: linear-gradient(135deg, #1957ad 0%, #4bb0ff 100%) !important;
+    color: #ffffff !important;
+    box-shadow: none !important;
+}
+
+body.internal-clean-page-shell button.admin-secret-trigger,
+html[data-theme] body.internal-clean-page-shell button.admin-secret-trigger {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    display: inline !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    color: inherit !important;
+    box-shadow: none !important;
+    font: inherit !important;
+    font-weight: inherit !important;
+    line-height: inherit !important;
+    vertical-align: baseline !important;
+    user-select: none !important;
+    -webkit-user-select: none !important;
+}
+
+body.internal-clean-page-shell button.admin-secret-trigger:hover,
+body.internal-clean-page-shell button.admin-secret-trigger:focus,
+html[data-theme] body.internal-clean-page-shell button.admin-secret-trigger:hover,
+html[data-theme] body.internal-clean-page-shell button.admin-secret-trigger:focus {
+    background: transparent !important;
+    color: inherit !important;
+    box-shadow: none !important;
+}
+
+body.internal-clean-page-shell button.admin-secret-trigger::selection,
+html[data-theme] body.internal-clean-page-shell button.admin-secret-trigger::selection {
+    background: transparent !important;
+    color: inherit !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.btn-link, .ghost-button) {
+    border: 1px solid #d7e1ed !important;
+    background: #ffffff !important;
+    color: var(--zip-navy) !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .section-title {
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    margin: 0 0 12px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .section-title h2,
+html[data-theme] body.internal-clean-page-shell .section-title h3 {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: 0.98rem !important;
+    line-height: 1.2 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .section-title p {
+    margin: 6px 0 0 !important;
+    color: #6f7f93 !important;
+    font-size: 0.82rem !important;
+}
+
+html[data-theme] body.internal-clean-page-shell table {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    color: var(--zip-navy) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell th {
+    color: #6f7f93 !important;
+    font-size: 0.68rem !important;
+    font-weight: 850 !important;
+    letter-spacing: 0.1em !important;
+    text-transform: uppercase !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(th, td) {
+    border-bottom: 1px solid #edf1f6 !important;
+    padding: 10px 12px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .empty-state {
+    min-height: 94px !important;
+    border: 1px dashed #cbd6e3 !important;
+    border-radius: 12px !important;
+    background: #f8fafc !important;
+    color: #64748b !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .flash-stack {
+    width: min(calc(100% - 64px), 1440px) !important;
+    margin: 16px auto 0 !important;
+}
+
+@media (max-width: 1080px) {
+    html[data-theme] body.internal-clean-page-shell .module-header {
+        padding: 0 16px !important;
+    }
+
+    html[data-theme] body.internal-clean-page-shell .page-hero,
+    html[data-theme] body.internal-clean-page-shell .page-content,
+    html[data-theme] body.internal-clean-page-shell .page-content-bleed,
+    html[data-theme] body.internal-clean-page-shell .flash-stack {
+        width: min(calc(100% - 28px), 1440px) !important;
+    }
+
+    html[data-theme] body.internal-clean-page-shell .page-hero {
+        align-items: flex-start !important;
+        flex-direction: column !important;
+    }
+
+    html[data-theme] body.internal-clean-page-shell :is(.summary, .meta-grid) {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 640px) {
+    html[data-theme] body.internal-clean-page-shell .brand-divider,
+    html[data-theme] body.internal-clean-page-shell .brand-logo-wide,
+    html[data-theme] body.internal-clean-page-shell .profile-name {
+        display: none !important;
+    }
+
+    html[data-theme] body.internal-clean-page-shell .header-center-logo {
+        width: 92px !important;
+    }
+
+    html[data-theme] body.internal-clean-page-shell .header-center-logo img {
+        width: 84px !important;
+    }
+
+    html[data-theme] body.internal-clean-page-shell :is(.summary, .meta-grid, .dashboard-cards, .wms-kpi-grid, .wms-step-grid, .wms-command-grid) {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    html[data-theme] body.internal-clean-page-shell :is(.form-box, .table-box, .box, .import-box, .panel) {
+        padding: 14px !important;
+    }
+}
+
+/* ZIP fidelity pass: make every non-POS internal work page use the same
+   module screen anatomy as informasi.html from the reference ZIP. */
+html[data-theme] body.internal-module-shell .page-content.hris-clean-shell,
+html[data-theme] body.internal-module-shell .breadcrumb-list,
+html[data-theme] body.internal-module-shell .internal-module-footer,
+html[data-theme] body.internal-clean-page-shell .breadcrumb-list,
+html[data-theme] body.internal-clean-page-shell .clean-module-layout {
+    width: min(1500px, calc(100% - 40px)) !important;
+    max-width: 1500px !important;
+}
+
+html[data-theme] body.internal-module-shell .page-content.hris-clean-shell {
+    padding: 24px 0 28px !important;
+}
+
+html[data-theme] body.internal-module-shell .internal-module-layout,
+html[data-theme] body.internal-module-shell .module-layout,
+html[data-theme] body.internal-clean-page-shell .clean-module-layout {
+    display: grid !important;
+    grid-template-columns: 260px minmax(0, 1fr) !important;
+    gap: 22px !important;
+    align-items: start !important;
+    margin: 0 auto !important;
+    padding: 24px 0 28px !important;
+}
+
+html[data-theme] body.internal-module-shell .info-sidebar,
+html[data-theme] body.internal-module-shell .hris-module-disclosure,
+html[data-theme] body.internal-module-shell .information-sidebar-card,
+html[data-theme] body.internal-clean-page-shell .info-sidebar,
+html[data-theme] body.internal-clean-page-shell .hris-module-disclosure,
+html[data-theme] body.internal-clean-page-shell .information-sidebar-card {
+    width: 260px !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 10px !important;
+    background: var(--zip-surface) !important;
+    box-shadow: 0 10px 24px rgba(12, 35, 68, 0.05) !important;
+    overflow: hidden !important;
+}
+
+html[data-theme] body.internal-module-shell .info-sidebar,
+html[data-theme] body.internal-clean-page-shell .info-sidebar {
+    position: sticky !important;
+    top: 146px !important;
+    align-self: start !important;
+}
+
+html[data-theme] body.internal-module-shell .information-sidebar-card,
+html[data-theme] body.internal-clean-page-shell .information-sidebar-card {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+html[data-theme] body.internal-module-shell .information-sidebar-head,
+html[data-theme] body.internal-module-shell .sidebar-title,
+html[data-theme] body.internal-clean-page-shell .information-sidebar-head,
+html[data-theme] body.internal-clean-page-shell .sidebar-title {
+    min-height: auto !important;
+    padding: 18px 20px 16px !important;
+    border-bottom: 1px solid var(--zip-border) !important;
+    background: #ffffff !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-menu,
+html[data-theme] body.internal-module-shell .hris-module-grid,
+html[data-theme] body.internal-clean-page-shell .sidebar-menu,
+html[data-theme] body.internal-clean-page-shell .hris-module-grid {
+    display: grid !important;
+    gap: 0 !important;
+    padding: 0 !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-link,
+html[data-theme] body.internal-module-shell .hris-module-card,
+html[data-theme] body.internal-clean-page-shell .sidebar-link,
+html[data-theme] body.internal-clean-page-shell .hris-module-card {
+    min-height: 56px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 13px 18px !important;
+    border: 0 !important;
+    border-bottom: 1px solid #edf1f5 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    color: #344054 !important;
+    box-shadow: none !important;
+    text-align: left !important;
+    text-decoration: none !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-link.active,
+html[data-theme] body.internal-module-shell .sidebar-link.is-active,
+html[data-theme] body.internal-module-shell .hris-module-card.active,
+html[data-theme] body.internal-module-shell .hris-module-card.is-active,
+html[data-theme] body.internal-clean-page-shell .sidebar-link.active,
+html[data-theme] body.internal-clean-page-shell .sidebar-link.is-active,
+html[data-theme] body.internal-clean-page-shell .hris-module-card.active,
+html[data-theme] body.internal-clean-page-shell .hris-module-card.is-active {
+    background: var(--zip-navy) !important;
+    color: #ffffff !important;
+}
+
+html[data-theme] body.internal-module-shell .sidebar-icon,
+html[data-theme] body.internal-module-shell .hris-module-nav-icon,
+html[data-theme] body.internal-clean-page-shell .sidebar-icon,
+html[data-theme] body.internal-clean-page-shell .hris-module-nav-icon {
+    width: 24px !important;
+    height: auto !important;
+    min-height: 24px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex: 0 0 24px !important;
+    font-size: 1.05rem !important;
+    line-height: 1 !important;
+    object-fit: contain !important;
+}
+
+html[data-theme] body.internal-module-shell .content-panel,
+html[data-theme] body.internal-module-shell .internal-module-panel,
+html[data-theme] body.internal-module-shell .information-panel,
+html[data-theme] body.internal-clean-page-shell .content-panel,
+html[data-theme] body.internal-clean-page-shell .internal-module-panel,
+html[data-theme] body.internal-clean-page-shell .information-panel,
+html[data-theme] body.internal-clean-page-shell .clean-content-panel {
+    min-width: 0 !important;
+    min-height: 720px !important;
+    padding: clamp(24px, 3vw, 34px) !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 10px !important;
+    background: rgba(255, 255, 255, 0.96) !important;
+    box-shadow: var(--zip-shadow-panel) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .module-header {
+    min-height: 72px !important;
+    gap: 24px !important;
+    padding: 12px clamp(18px, 4vw, 48px) !important;
+    border-bottom: 1px solid rgba(223, 229, 238, 0.92) !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+    box-shadow: none !important;
+    backdrop-filter: blur(16px) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .brand {
+    gap: 14px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .brand-logo {
+    width: auto !important;
+    min-width: 92px !important;
+    height: 46px !important;
+    min-height: 46px !important;
+    padding: 0 14px !important;
+    border-radius: 8px !important;
+    box-shadow: 0 6px 16px rgba(12, 35, 68, 0.06) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .brand-logo-wide {
+    min-width: 154px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .header-center-logo {
+    width: clamp(170px, 20vw, 260px) !important;
+    height: 48px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-decoration: none !important;
+    pointer-events: auto !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .header-center-logo img {
+    width: 100% !important;
+    height: auto !important;
+    max-height: 72px !important;
+    object-fit: contain !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .notification-button,
+html[data-theme] body.internal-clean-page-shell .profile-button {
+    box-shadow: 0 6px 16px rgba(12, 35, 68, 0.06) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .notification-dot {
+    right: 9px !important;
+    width: 8px !important;
+    height: 8px !important;
+    border: 2px solid #ffffff !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .profile-button {
+    min-height: 42px !important;
+    padding: 6px 8px 6px 14px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .profile-name {
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .avatar {
+    width: 30px !important;
+    height: 30px !important;
+    font-size: 0.88rem !important;
+    font-weight: 800 !important;
+    background: linear-gradient(135deg, var(--zip-navy), var(--zip-navy-2)) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-breadcrumb-bar {
+    background: rgba(255, 255, 255, 0.94) !important;
+    border-bottom: 1px solid var(--zip-border) !important;
+    padding: 0 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-breadcrumb-bar .breadcrumb-list {
+    width: min(1500px, calc(100% - 40px)) !important;
+    max-width: 1500px !important;
+    min-height: 56px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 11px !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    list-style: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-breadcrumb-bar .breadcrumb-list li {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 11px !important;
+    color: #667085 !important;
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-breadcrumb-bar .breadcrumb-list li + li::before {
+    content: "/" !important;
+    color: #98a2b3 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-breadcrumb-bar .breadcrumb-list a {
+    color: var(--zip-navy) !important;
+    font-weight: 800 !important;
+    text-decoration: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-hero,
+html[data-theme] body.internal-clean-page-shell .page-content,
+html[data-theme] body.internal-clean-page-shell .page-content-bleed,
+html[data-theme] body.internal-clean-page-shell .flash-stack {
+    width: 100% !important;
+    max-width: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-hero {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    align-items: center !important;
+    gap: 28px !important;
+    min-height: 148px !important;
+    margin: 0 0 22px !important;
+    padding: 0 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-eyebrow {
+    margin: 0 0 7px !important;
+    color: var(--zip-gold) !important;
+    font-size: 0.76rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.08em !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-hero h1 {
+    font-size: clamp(2rem, 4vw, 3.15rem) !important;
+    line-height: 1.15 !important;
+    letter-spacing: -0.04em !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-content {
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.card, .card-mini, .meta-card, .wms-command-card, .wms-step-card, .wms-kpi-card, .stock-mini-card, .content-card) {
+    border: 1px solid var(--zip-border) !important;
+    border-top: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    background: var(--zip-surface-soft) !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.table-box, .form-box, .box, .import-box, .panel, details.panel-disclosure, .wms-split-band, .wms-filter-band) {
+    border-radius: 8px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-disclosure,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .information-sidebar-card {
+    padding: 0 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-menu {
+    display: grid !important;
+    gap: 0 !important;
+    padding: 0 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-link,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-card,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .card {
+    width: 100% !important;
+    min-height: 56px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 13px 18px !important;
+    border: 0 !important;
+    border-top: 0 !important;
+    border-bottom: 1px solid #edf1f5 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    color: #344054 !important;
+    box-shadow: none !important;
+    text-align: left !important;
+    text-decoration: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-link h2,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-card h2,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .card h2 {
+    display: block !important;
+    margin: 0 !important;
+    color: inherit !important;
+    font-size: 0.94rem !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+    letter-spacing: -0.01em !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-link small,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-card small {
+    display: block !important;
+    margin-top: 2px !important;
+    color: #667085 !important;
+    font-size: 0.72rem !important;
+    font-weight: 500 !important;
+    line-height: 1.25 !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-link.active,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-link.is-active,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-card.active,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-card.is-active {
+    background: var(--zip-navy) !important;
+    color: #ffffff !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-link.active h2,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-link.is-active h2,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-card.active h2,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-card.is-active h2,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-link.active small,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-link.is-active small,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-card.active small,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-card.is-active small {
+    color: #ffffff !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-icon,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-nav-icon {
+    width: 24px !important;
+    height: auto !important;
+    min-height: 24px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex: 0 0 24px !important;
+    font-size: 1.05rem !important;
+    line-height: 1 !important;
+    object-fit: contain !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-card-copy {
+    display: block !important;
+    min-width: 0 !important;
+}
+
+/* Full internal audit pass: keep every non-POS route in the ZIP reference
+   language, even when older templates still use their own component names. */
+html[data-theme] body.internal-clean-page-shell :is(
+    .announcement-permission-panel,
+    .announcement-stream,
+    .attendance-overview-card,
+    .attendance-capture-card,
+    .leave-portal-card,
+    [data-leave-portal],
+    [data-overtime-portal],
+    .daily-report-card,
+    [data-daily-live-report-form],
+    #kpi-target-form,
+    .approval-queue-table-box,
+    .audit-variant-disclosure,
+    .stock-opname-shell,
+    .stock-opname-note,
+    .stock-opname-table-box,
+    .crm-local-nav-box,
+    .chat-shell,
+    .notification-center-page,
+    .notification-center-list,
+    .schedule-legend-box,
+    .schedule-panel-disclosure,
+    .schedule-board-shell,
+    .schedule-live-shell,
+    .product-studio-shell,
+    .product-studio-import-box,
+    .products-manual-box,
+    .products-list-box,
+    .stock-workband,
+    .stock-detail-box,
+    .stock-edit-modal-panel,
+    .ops-batch-box,
+    .ops-queue-box,
+    .admin-hidden-archive-shell
+) {
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    color: var(--zip-text) !important;
+    box-shadow: none !important;
+    filter: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .announcement-permission-card,
+    .announcement-event-card,
+    .attendance-camera-panel,
+    .attendance-form-panel,
+    .attendance-optional-panel,
+    .schedule-shift-card,
+    .schedule-profile-card,
+    .schedule-live-section,
+    .crm-members-grid .card,
+    .chat-sidebar-panel,
+    .chat-main-panel,
+    .chat-self-card,
+    .chat-thread-card,
+    .chat-contact-card,
+    .chat-list-empty,
+    .chat-search-panel,
+    .chat-message-bubble,
+    .chat-composer,
+    .chat-modal-card,
+    .chat-call-card,
+    .notification-card,
+    .notification-entry,
+    .ops-config-card,
+    .ops-entry-box,
+    .ops-stock-card,
+    .request-custom-callout,
+    .ops-queue-empty,
+    .stock-readonly-field,
+    .stock-readonly-money,
+    .stock-group-detail-panel,
+    .stock-search-replace-preview,
+    .variant-static-card,
+    .variant-price-card,
+    .variant-stock-card,
+    .variant-meta-stack,
+    .product-studio-import-box,
+    .audit-variant-group,
+    .audit-variant-item
+) {
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    background: #fbfcfe !important;
+    color: var(--zip-text) !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .announcement-center-grid,
+    .announcement-permission-grid,
+    .attendance-overview-grid,
+    .attendance-capture-grid,
+    .attendance-form-quick-grid,
+    .schedule-control-grid,
+    .schedule-profile-list,
+    .schedule-shift-list,
+    .ops-config-grid,
+    .ops-entry-grid,
+    .crm-members-grid
+) {
+    display: grid !important;
+    gap: 12px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .announcement-center-grid,
+    .schedule-control-grid,
+    .attendance-capture-grid
+) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .announcement-stream-head,
+    .announcement-event-head,
+    .attendance-overview-head,
+    .chat-main-head,
+    .chat-sidebar-head,
+    .notification-center-head,
+    .notification-center-toolbar,
+    .schedule-panel-summary,
+    .schedule-matrix-toolbar,
+    .schedule-live-batch-toolbar,
+    .stock-filter-head,
+    .stock-quick-actions,
+    .split-actions,
+    .status-row
+) {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 10px !important;
+    flex-wrap: wrap !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .announcement-permission-panel,
+    .announcement-stream,
+    .attendance-overview-card,
+    .attendance-capture-card,
+    .schedule-board-shell,
+    .schedule-live-shell,
+    .stock-detail-box,
+    .product-studio-shell,
+    .ops-batch-box,
+    .chat-shell,
+    .notification-center-page,
+    .approval-queue-table-box,
+    .stock-opname-table-box
+) {
+    padding: 18px !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .schedule-board-shell,
+    .schedule-live-shell,
+    .stock-detail-box,
+    .products-list-box,
+    .approval-queue-table-box,
+    .stock-opname-table-box
+) {
+    overflow: auto !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .stock-quick-action,
+    .notification-tab,
+    .schedule-chip,
+    .status-pill,
+    .badge,
+    .chat-member-pill,
+    .chat-unread-badge,
+    .schedule-date-badge,
+    .barcode-save-pill,
+    .barcode-mini-pill
+) {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: auto !important;
+    min-width: 0 !important;
+    min-height: 28px !important;
+    padding: 6px 10px !important;
+    border: 1px solid #d7e1ed !important;
+    border-radius: 999px !important;
+    background: #f6f8fb !important;
+    color: var(--zip-navy) !important;
+    box-shadow: none !important;
+    font-size: 0.72rem !important;
+    font-weight: 850 !important;
+    letter-spacing: 0 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .stock-quick-action:hover,
+    .notification-tab.active,
+    .chat-thread-card.active,
+    .ghost-button.active
+) {
+    border-color: var(--zip-navy) !important;
+    background: var(--zip-navy) !important;
+    color: #ffffff !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .chat-avatar,
+    .chat-empty-art,
+    .notification-entry-icon,
+    .attendance-camera-frame,
+    .schedule-live-check,
+    .stock-context-menu,
+    .picker-modal-panel
+) {
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    background: #eef3f8 !important;
+    color: var(--zip-navy) !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(.chat-avatar, .notification-entry-icon) {
+    width: 34px !important;
+    height: 34px !important;
+    min-width: 34px !important;
+    border-radius: 8px !important;
+    font-size: 0.74rem !important;
+    font-weight: 850 !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .chat-message-board,
+    .chat-list-stack,
+    .notification-center-list,
+    .announcement-feed-scroll
+) {
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    background: #f8fafc !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .schedule-matrix,
+    .schedule-live-table,
+    .stock-table,
+    .stock-group-variant-table,
+    .approval-queue-table,
+    .audit-log-table,
+    .stock-opname-table,
+    .ops-queue-table
+) {
+    width: 100% !important;
+    min-width: 760px !important;
+    background: #ffffff !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .schedule-matrix-cell,
+    .schedule-live-cell,
+    .schedule-matrix-date-cell,
+    .schedule-live-date-cell,
+    .stock-product-group-row,
+    [data-stock-row],
+    .notification-entry
+) {
+    background: #ffffff !important;
+    color: var(--zip-text) !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .schedule-matrix-pill,
+    .schedule-live-person,
+    .schedule-live-channel,
+    .schedule-live-note
+) {
+    color: var(--zip-navy) !important;
+    text-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell :is(
+    .progress-track,
+    .import-progress,
+    .stock-search-replace-preview-list
+) {
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    background: #eef3f8 !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-content-panel :is(
+    [class*="-card"],
+    [class*="-panel"],
+    [class*="-box"],
+    [class*="-shell"],
+    [class*="-tile"]
+) {
+    background-image: none !important;
+    box-shadow: none !important;
+    filter: none !important;
+    backdrop-filter: none !important;
+    text-shadow: none !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-content-panel :is(
+    [class*="-card"],
+    [class*="-panel"],
+    [class*="-box"],
+    [class*="-tile"]
+)::before,
+html[data-theme] body.internal-clean-page-shell .clean-content-panel :is(
+    [class*="-card"],
+    [class*="-panel"],
+    [class*="-box"],
+    [class*="-tile"]
+)::after {
+    box-shadow: none !important;
+    filter: none !important;
+}
+
+@media (max-width: 920px) {
+    html[data-theme] body.internal-clean-page-shell :is(
+        .announcement-center-grid,
+        .schedule-control-grid,
+        .attendance-capture-grid
+    ) {
+        grid-template-columns: 1fr !important;
+    }
+
+    html[data-theme] body.internal-clean-page-shell .chat-shell {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+body.internal-clean-page-shell .admin-hidden-archive-card,
+html[data-theme] body.internal-clean-page-shell .admin-hidden-archive-card {
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    background: #fbfcfe !important;
+    color: var(--zip-navy) !important;
+    box-shadow: none !important;
+}
+
+body.internal-clean-page-shell .admin-hidden-archive-card span,
+html[data-theme] body.internal-clean-page-shell .admin-hidden-archive-card span {
+    color: var(--zip-muted) !important;
+}
+
+body.internal-clean-page-shell .barcode-app,
+html[data-theme] body.internal-clean-page-shell .barcode-app {
+    gap: 14px !important;
+    color: var(--zip-text) !important;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}
+
+body.internal-clean-page-shell .barcode-shellbar,
+body.internal-clean-page-shell .barcode-pane,
+body.internal-clean-page-shell .barcode-stage-shell,
+html[data-theme] body.internal-clean-page-shell .barcode-shellbar,
+html[data-theme] body.internal-clean-page-shell .barcode-pane,
+html[data-theme] body.internal-clean-page-shell .barcode-stage-shell {
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    color: var(--zip-text) !important;
+    box-shadow: none !important;
+}
+
+body.internal-clean-page-shell .barcode-shellbar,
+html[data-theme] body.internal-clean-page-shell .barcode-shellbar {
+    border-top: 3px solid #74c2ff !important;
+}
+
+body.internal-clean-page-shell :is(.barcode-brand strong, .barcode-save-pill, .barcode-mini-pill, .barcode-tag),
+html[data-theme] body.internal-clean-page-shell :is(.barcode-brand strong, .barcode-save-pill, .barcode-mini-pill, .barcode-tag) {
+    color: var(--zip-navy) !important;
+}
+
+body.internal-clean-page-shell :is(.barcode-save-pill, .barcode-mini-pill, .barcode-tag, .barcode-btn.secondary, .barcode-btn.danger),
+html[data-theme] body.internal-clean-page-shell :is(.barcode-save-pill, .barcode-mini-pill, .barcode-tag, .barcode-btn.secondary, .barcode-btn.danger) {
+    border: 1px solid var(--zip-border) !important;
+    background: #f6f8fb !important;
+    color: var(--zip-navy) !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+}
+
+body.internal-clean-page-shell :is(.barcode-btn, .barcode-chip),
+html[data-theme] body.internal-clean-page-shell :is(.barcode-btn, .barcode-chip) {
+    border-radius: 999px !important;
+    transform: none !important;
+}
+
+body.internal-clean-page-shell .barcode-btn:not(.secondary):not(.danger),
+html[data-theme] body.internal-clean-page-shell .barcode-btn:not(.secondary):not(.danger) {
+    background: linear-gradient(135deg, #1957ad 0%, #4bb0ff 100%) !important;
+    color: #ffffff !important;
+    box-shadow: none !important;
+}
+
+body.internal-clean-page-shell .barcode-chip.active,
+html[data-theme] body.internal-clean-page-shell .barcode-chip.active {
+    border-color: var(--zip-navy) !important;
+    background: var(--zip-navy) !important;
+    color: #ffffff !important;
+}
+
+body.internal-module-shell .document-approval-sheet-page,
+html[data-theme] body.internal-module-shell .document-approval-sheet-page {
+    width: min(1500px, calc(100% - 40px)) !important;
+    max-width: 1500px !important;
+}
+
+body.internal-module-shell .document-approval-sheet,
+html[data-theme] body.internal-module-shell .document-approval-sheet {
+    gap: 18px !important;
+}
+
+body.internal-module-shell .document-approval-masthead,
+body.internal-module-shell .document-approval-workboard,
+body.internal-module-shell .document-approval-paper,
+body.internal-module-shell .document-approval-panel,
+body.internal-module-shell .document-approval-sign-section,
+body.internal-module-shell .document-approval-stat-card,
+html[data-theme] body.internal-module-shell .document-approval-masthead,
+html[data-theme] body.internal-module-shell .document-approval-workboard,
+html[data-theme] body.internal-module-shell .document-approval-paper,
+html[data-theme] body.internal-module-shell .document-approval-panel,
+html[data-theme] body.internal-module-shell .document-approval-sign-section,
+html[data-theme] body.internal-module-shell .document-approval-stat-card {
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 8px !important;
+    background: #fbfcfe !important;
+    color: var(--zip-text) !important;
+    box-shadow: none !important;
+}
+
+body.internal-module-shell .document-approval-masthead,
+html[data-theme] body.internal-module-shell .document-approval-masthead {
+    border-color: #dccb9a !important;
+}
+
+body.internal-module-shell :is(.document-approval-masthead h2, .document-approval-masthead p, .document-approval-kicker),
+html[data-theme] body.internal-module-shell :is(.document-approval-masthead h2, .document-approval-masthead p, .document-approval-kicker) {
+    color: var(--zip-navy) !important;
+}
+
+body.internal-module-shell .document-approval-brand-mark,
+html[data-theme] body.internal-module-shell .document-approval-brand-mark {
+    border: 1px solid #f1dfb0 !important;
+    border-radius: 13px !important;
+    background: var(--zip-gold-soft) !important;
+}
+
+body.internal-module-shell .document-approval-preview-stage,
+html[data-theme] body.internal-module-shell .document-approval-preview-stage {
+    border-radius: 8px !important;
+    background: #eef1f5 !important;
+}
+
+body.internal-module-shell .document-approval-preview-toolbar,
+html[data-theme] body.internal-module-shell .document-approval-preview-toolbar {
+    color: var(--zip-navy) !important;
+}
+
+body.internal-module-shell .document-approval-title-eyebrow,
+html[data-theme] body.internal-module-shell .document-approval-title-eyebrow {
+    color: var(--zip-gold) !important;
+}
+
+body.internal-module-shell .document-module-actions,
+html[data-theme] body.internal-module-shell .document-module-actions {
+    width: min(1500px, calc(100% - 40px)) !important;
+    margin: 0 auto !important;
+}
+
+body.internal-module-shell .document-module-actions .page-actions,
+html[data-theme] body.internal-module-shell .document-module-actions .page-actions {
+    justify-content: flex-end !important;
+}
+
+@media (max-width: 1100px) {
+    html[data-theme] body.internal-module-shell .internal-module-layout,
+    html[data-theme] body.internal-module-shell .module-layout,
+    html[data-theme] body.internal-clean-page-shell .clean-module-layout {
+        grid-template-columns: 220px minmax(0, 1fr) !important;
+    }
+
+    html[data-theme] body.internal-module-shell .info-sidebar,
+    html[data-theme] body.internal-module-shell .hris-module-disclosure,
+    html[data-theme] body.internal-module-shell .information-sidebar-card,
+    html[data-theme] body.internal-clean-page-shell .info-sidebar,
+    html[data-theme] body.internal-clean-page-shell .hris-module-disclosure,
+    html[data-theme] body.internal-clean-page-shell .information-sidebar-card {
+        width: 220px !important;
+    }
+}
+
+@media (max-width: 760px) {
+    html[data-theme] body.internal-module-shell .page-content.hris-clean-shell,
+    html[data-theme] body.internal-module-shell .breadcrumb-list,
+    html[data-theme] body.internal-clean-page-shell .breadcrumb-list,
+    html[data-theme] body.internal-clean-page-shell .clean-module-layout {
+        width: min(100% - 24px, 1500px) !important;
+    }
+
+    html[data-theme] body.internal-module-shell .internal-module-layout,
+    html[data-theme] body.internal-module-shell .module-layout,
+    html[data-theme] body.internal-clean-page-shell .clean-module-layout {
+        grid-template-columns: 1fr !important;
+        gap: 14px !important;
+        padding-top: 14px !important;
+    }
+
+    html[data-theme] body.internal-module-shell .info-sidebar,
+    html[data-theme] body.internal-module-shell .hris-module-disclosure,
+    html[data-theme] body.internal-module-shell .information-sidebar-card,
+    html[data-theme] body.internal-clean-page-shell .info-sidebar,
+    html[data-theme] body.internal-clean-page-shell .hris-module-disclosure,
+    html[data-theme] body.internal-clean-page-shell .information-sidebar-card {
+        position: static !important;
+        width: 100% !important;
+        border-radius: 8px !important;
+    }
+
+    html[data-theme] body.internal-module-shell .sidebar-title,
+    html[data-theme] body.internal-module-shell .information-sidebar-head,
+    html[data-theme] body.internal-clean-page-shell .sidebar-title,
+    html[data-theme] body.internal-clean-page-shell .information-sidebar-head {
+        display: none !important;
+    }
+
+    html[data-theme] body.internal-module-shell .sidebar-menu,
+    html[data-theme] body.internal-module-shell .hris-module-grid,
+    html[data-theme] body.internal-clean-page-shell .sidebar-menu,
+    html[data-theme] body.internal-clean-page-shell .hris-module-grid {
+        display: flex !important;
+        gap: 8px !important;
+        overflow-x: auto !important;
+        padding: 10px !important;
+    }
+
+    html[data-theme] body.internal-module-shell .sidebar-link,
+    html[data-theme] body.internal-module-shell .hris-module-card,
+    html[data-theme] body.internal-clean-page-shell .sidebar-link,
+    html[data-theme] body.internal-clean-page-shell .hris-module-card {
+        width: auto !important;
+        min-width: max-content !important;
+        min-height: 42px !important;
+        flex: 0 0 auto !important;
+        padding: 9px 12px !important;
+        border: 1px solid var(--zip-border) !important;
+        border-radius: 8px !important;
+    }
+
+    html[data-theme] body.internal-clean-page-shell .page-hero {
+        grid-template-columns: 1fr !important;
+        min-height: auto !important;
+    }
+}
+
+html[data-theme] body.internal-module-shell span.sidebar-icon,
+html[data-theme] body.internal-module-shell span.hris-module-nav-icon,
+html[data-theme] body.internal-clean-page-shell span.sidebar-icon,
+html[data-theme] body.internal-clean-page-shell span.hris-module-nav-icon {
+    filter: none !important;
+    opacity: 1 !important;
+    color: currentColor !important;
+}
+
+/* Final polish pass for the shared internal shells.
+   Keeps the clean system consistent across workspace, module hubs, and legacy
+   internal pages without touching POS or backend behavior. */
+body.internal-portal-shell,
+body.internal-module-shell,
+html[data-theme] body.internal-clean-page-shell {
+    font-family: "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}
+
+body.internal-portal-shell,
+body.internal-module-shell,
+html[data-theme] body.internal-clean-page-shell {
+    --zip-shadow-soft: 0 16px 34px rgba(12, 35, 68, 0.08);
+    --zip-shadow-card: 0 12px 28px rgba(12, 35, 68, 0.07);
+    --zip-shadow-panel: 0 14px 30px rgba(12, 35, 68, 0.08);
+}
+
+html[data-theme] body.internal-portal-shell .workspace-app-tile,
+html[data-theme] body.internal-portal-shell .summary-card,
+html[data-theme] body.internal-module-shell :is(.content-card, .information-policy-card, .hris-module-card),
+html[data-theme] body.internal-clean-page-shell :is(.card, .card-mini, .meta-card, .wms-command-card, .wms-step-card, .wms-kpi-card, .stock-mini-card, .content-card) {
+    border-radius: 12px !important;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%) !important;
+    box-shadow: 0 12px 28px rgba(12, 35, 68, 0.06) !important;
+}
+
+html[data-theme] body.internal-portal-shell :is(.workspace-section, .hero-section),
+html[data-theme] body.internal-module-shell :is(.content-panel, .internal-module-panel, .information-panel),
+html[data-theme] body.internal-clean-page-shell :is(.table-box, .form-box, .box, .import-box, .panel, details.panel-disclosure, .wms-split-band, .wms-filter-band) {
+    border-radius: 16px !important;
+    background: rgba(255, 255, 255, 0.95) !important;
+    box-shadow: 0 14px 34px rgba(12, 35, 68, 0.06) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-link.active,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .sidebar-link.is-active,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-card.active,
+html[data-theme] body.internal-clean-page-shell .clean-module-sidebar .hris-module-card.is-active {
+    box-shadow: inset 3px 0 0 var(--zip-gold) !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-hero {
+    align-items: end !important;
+}
+
+html[data-theme] body.internal-clean-page-shell .page-content {
+    padding-top: 2px !important;
+}
+
+/* Portal home fidelity pass: keep the workspace gateway close to the supplied
+   WEB CV BJAS PORTAL zip and prevent shared page polish from turning sections
+   into oversized panels. */
+html[data-theme] body.internal-portal-shell,
+body.internal-portal-shell {
+    --zip-shadow-soft: 0 14px 36px rgba(12, 35, 68, 0.08) !important;
+    --zip-shadow-card: 0 10px 24px rgba(12, 35, 68, 0.07) !important;
+    min-height: 100vh !important;
+    color: var(--zip-text) !important;
+    background:
+        radial-gradient(circle at top left, rgba(217, 166, 46, 0.12), transparent 30rem),
+        linear-gradient(180deg, #f7f9fc 0%, var(--zip-bg) 42%, #eef2f7 100%) !important;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}
+
+html[data-theme] body.internal-portal-shell .page-content,
+html[data-theme] body.internal-portal-shell .workspace-gateway.portal-shell,
+body.internal-portal-shell .page-content,
+body.internal-portal-shell .workspace-gateway.portal-shell {
+    width: min(1180px, calc(100% - 32px)) !important;
+    max-width: 1180px !important;
+    margin: 0 auto !important;
+    padding: 42px 0 30px !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-portal-shell .page-content {
+    padding: 0 !important;
+}
+
+html[data-theme] body.internal-portal-shell .site-header.internal-app-topbar,
+body.internal-portal-shell .site-header.internal-app-topbar {
+    min-height: 76px !important;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important;
+    gap: 24px !important;
+    padding: 14px clamp(18px, 4vw, 48px) !important;
+    background: rgba(255, 255, 255, 0.88) !important;
+    border-bottom: 1px solid rgba(223, 229, 238, 0.9) !important;
+    box-shadow: none !important;
+    backdrop-filter: blur(16px) !important;
+}
+
+html[data-theme] body.internal-portal-shell .header-center-logo,
+body.internal-portal-shell .header-center-logo {
+    width: clamp(170px, 20vw, 260px) !important;
+    height: 48px !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+}
+
+html[data-theme] body.internal-portal-shell .header-center-logo img,
+body.internal-portal-shell .header-center-logo img {
+    width: 100% !important;
+    height: auto !important;
+    max-height: 72px !important;
+    object-fit: contain !important;
+}
+
+html[data-theme] body.internal-portal-shell .hero-section,
+html[data-theme] body.internal-portal-shell .apps-section,
+html[data-theme] body.internal-portal-shell .workspace-section,
+body.internal-portal-shell .hero-section,
+body.internal-portal-shell .apps-section,
+body.internal-portal-shell .workspace-section {
+    width: 100% !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-portal-shell .hero-section,
+body.internal-portal-shell .hero-section {
+    display: grid !important;
+    gap: 24px !important;
+    justify-items: center !important;
+    text-align: center !important;
+}
+
+html[data-theme] body.internal-portal-shell .apps-section,
+body.internal-portal-shell .apps-section {
+    margin: 0 !important;
+    padding-top: 34px !important;
+}
+
+html[data-theme] body.internal-portal-shell .summary-grid,
+body.internal-portal-shell .summary-grid {
+    width: 100% !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 16px !important;
+    margin-top: 4px !important;
+}
+
+html[data-theme] body.internal-portal-shell .summary-card,
+body.internal-portal-shell .summary-card {
+    min-height: 96px !important;
+    gap: 14px !important;
+    padding: 20px !important;
+    background: rgba(255, 255, 255, 0.82) !important;
+    border: 1px solid rgba(223, 229, 238, 0.92) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 10px 22px rgba(12, 35, 68, 0.05) !important;
+}
+
+html[data-theme] body.internal-portal-shell .summary-card h2,
+body.internal-portal-shell .summary-card h2 {
+    margin: 0 !important;
+    color: var(--zip-navy) !important;
+    font-size: 0.95rem !important;
+    line-height: 1.2 !important;
+}
+
+html[data-theme] body.internal-portal-shell .summary-card p,
+body.internal-portal-shell .summary-card p {
+    margin: 3px 0 0 !important;
+    color: var(--zip-muted) !important;
+    font-size: 0.92rem !important;
+    line-height: 1.35 !important;
+}
+
+html[data-theme] body.internal-portal-shell .app-grid,
+body.internal-portal-shell .app-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 18px !important;
+}
+
+html[data-theme] body.internal-portal-shell .app-card,
+body.internal-portal-shell .app-card {
+    min-height: 218px !important;
+    padding: 20px !important;
+    background: var(--zip-surface) !important;
+    border: 1px solid var(--zip-border) !important;
+    border-radius: 18px !important;
+    box-shadow: var(--zip-shadow-card) !important;
+    color: var(--zip-text) !important;
+    transform: none !important;
+}
+
+html[data-theme] body.internal-portal-shell .app-card:hover,
+html[data-theme] body.internal-portal-shell .app-card:focus-visible,
+body.internal-portal-shell .app-card:hover,
+body.internal-portal-shell .app-card:focus-visible {
+    border-color: rgba(217, 166, 46, 0.55) !important;
+    box-shadow: 0 18px 36px rgba(12, 35, 68, 0.12) !important;
+    transform: translateY(-4px) !important;
+}
+
+html[data-theme] body.internal-portal-shell .app-card > .app-badge,
+body.internal-portal-shell .app-card > .app-badge {
+    margin-top: auto !important;
+}
+
+html[data-theme] body.internal-portal-shell .app-card h3,
+body.internal-portal-shell .app-card h3 {
+    margin: 0 0 8px !important;
+    color: var(--zip-navy) !important;
+    font-size: 1.05rem !important;
+    line-height: 1.28 !important;
+}
+
+html[data-theme] body.internal-portal-shell .app-card p,
+body.internal-portal-shell .app-card p {
+    margin: 0 0 18px !important;
+    color: var(--zip-muted) !important;
+    font-size: 0.92rem !important;
+    line-height: 1.45 !important;
+}
+
+html[data-theme] body.internal-portal-shell .card-topline .app-badge,
+html[data-theme] body.internal-portal-shell .card-topline .status-pill,
+body.internal-portal-shell .card-topline .app-badge,
+body.internal-portal-shell .card-topline .status-pill {
+    margin-top: 0 !important;
+}
+
+html[data-theme] body.internal-portal-shell .status-pill,
+body.internal-portal-shell .status-pill {
+    display: inline-flex !important;
+    align-items: center !important;
+    min-height: 26px !important;
+    padding: 5px 10px !important;
+    color: var(--zip-success) !important;
+    background: #eaf8f2 !important;
+    border: 1px solid #ccebdd !important;
+    border-radius: 999px !important;
+    font-size: 0.74rem !important;
+    font-weight: 800 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+}
+
+html[data-theme] body.internal-portal-shell .status-pill.tone-amber,
+body.internal-portal-shell .status-pill.tone-amber {
+    color: var(--zip-warning) !important;
+    background: #fff4df !important;
+    border-color: #f3d49b !important;
+}
+
+html[data-theme] body.internal-portal-shell .dropdown-icon,
+body.internal-portal-shell .dropdown-icon {
+    color: var(--zip-muted) !important;
+    font-size: 0.86rem !important;
+}
+
+html[data-theme] body.internal-portal-shell .site-footer,
+body.internal-portal-shell .site-footer {
+    width: min(1180px, calc(100% - 32px)) !important;
+    margin: 0 auto !important;
+    padding: 0 0 26px !important;
+    color: var(--zip-muted) !important;
+    font-size: 0.82rem !important;
+    text-align: center !important;
+}
+
+html[data-theme] body.internal-portal-shell .internal-topbar-user,
+html[data-theme] body.internal-module-shell .internal-topbar-user,
+html[data-theme] body.internal-clean-page-shell .internal-topbar-user,
+body.internal-portal-shell .internal-topbar-user,
+body.internal-module-shell .internal-topbar-user,
+body.internal-clean-page-shell .internal-topbar-user {
+    position: relative !important;
+    z-index: 90 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 10px !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-menu-shell,
+html[data-theme] body.internal-module-shell .topbar-menu-shell,
+html[data-theme] body.internal-clean-page-shell .topbar-menu-shell,
+body.internal-portal-shell .topbar-menu-shell,
+body.internal-module-shell .topbar-menu-shell,
+body.internal-clean-page-shell .topbar-menu-shell {
+    position: relative !important;
+    display: inline-flex !important;
+    align-items: center !important;
+}
+
+html[data-theme] body.internal-portal-shell button.notification-button,
+html[data-theme] body.internal-module-shell button.notification-button,
+html[data-theme] body.internal-clean-page-shell button.notification-button,
+html[data-theme] body.internal-portal-shell button.profile-button,
+html[data-theme] body.internal-module-shell button.profile-button,
+html[data-theme] body.internal-clean-page-shell button.profile-button,
+body.internal-portal-shell button.notification-button,
+body.internal-module-shell button.notification-button,
+body.internal-clean-page-shell button.notification-button,
+body.internal-portal-shell button.profile-button,
+body.internal-module-shell button.profile-button,
+body.internal-clean-page-shell button.profile-button {
+    appearance: none !important;
+    font: inherit !important;
+    cursor: pointer !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-menu-shell.is-open .notification-button,
+html[data-theme] body.internal-module-shell .topbar-menu-shell.is-open .notification-button,
+html[data-theme] body.internal-clean-page-shell .topbar-menu-shell.is-open .notification-button,
+html[data-theme] body.internal-portal-shell .topbar-menu-shell.is-open .profile-button,
+html[data-theme] body.internal-module-shell .topbar-menu-shell.is-open .profile-button,
+html[data-theme] body.internal-clean-page-shell .topbar-menu-shell.is-open .profile-button,
+body.internal-portal-shell .topbar-menu-shell.is-open .notification-button,
+body.internal-module-shell .topbar-menu-shell.is-open .notification-button,
+body.internal-clean-page-shell .topbar-menu-shell.is-open .notification-button,
+body.internal-portal-shell .topbar-menu-shell.is-open .profile-button,
+body.internal-module-shell .topbar-menu-shell.is-open .profile-button,
+body.internal-clean-page-shell .topbar-menu-shell.is-open .profile-button {
+    border-color: rgba(42, 126, 211, 0.36) !important;
+    box-shadow: 0 14px 28px rgba(12, 35, 68, 0.12) !important;
+}
+
+/* Keep the internal topbar neutral even while dropdowns are active/open. */
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar :is(.notification-button, .profile-button, .internal-icon-button, .internal-user-pill),
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar :is(.notification-button, .profile-button, .internal-icon-button, .internal-user-pill):is(:hover, :focus, :focus-visible, :active),
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .topbar-menu-shell.is-open :is(.notification-button, .profile-button, .internal-icon-button, .internal-user-pill),
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar :is(.notification-button, .profile-button)[aria-expanded="true"],
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar :is(.notification-button, .profile-button, .internal-icon-button, .internal-user-pill),
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar :is(.notification-button, .profile-button, .internal-icon-button, .internal-user-pill):is(:hover, :focus, :focus-visible, :active),
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .topbar-menu-shell.is-open :is(.notification-button, .profile-button, .internal-icon-button, .internal-user-pill),
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar :is(.notification-button, .profile-button)[aria-expanded="true"] {
+    background: #ffffff !important;
+    background-image: none !important;
+    border-color: var(--zip-border) !important;
+    color: var(--zip-navy) !important;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05) !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .notification-button,
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .notification-button span[aria-hidden="true"],
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .notification-button,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .notification-button span[aria-hidden="true"] {
+    color: var(--zip-gold) !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .profile-button .profile-name,
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .profile-button .dropdown-icon,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .profile-button .profile-name,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .profile-button .dropdown-icon {
+    background: transparent !important;
+    color: var(--zip-navy) !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .profile-button .avatar,
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .profile-button:is(:hover, :focus, :focus-visible, :active) .avatar,
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .topbar-menu-shell.is-open .profile-button .avatar,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .profile-button .avatar,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .profile-button:is(:hover, :focus, :focus-visible, :active) .avatar,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar .topbar-menu-shell.is-open .profile-button .avatar {
+    background: linear-gradient(135deg, var(--zip-navy), var(--zip-navy-2)) !important;
+    color: #ffffff !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar :is(.notification-button, .profile-button):focus-visible,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar :is(.notification-button, .profile-button):focus-visible {
+    outline: 3px solid rgba(215, 183, 96, 0.34) !important;
+    outline-offset: 3px !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-dropdown,
+html[data-theme] body.internal-module-shell .topbar-dropdown,
+html[data-theme] body.internal-clean-page-shell .topbar-dropdown,
+body.internal-portal-shell .topbar-dropdown,
+body.internal-module-shell .topbar-dropdown,
+body.internal-clean-page-shell .topbar-dropdown {
+    position: absolute !important;
+    top: calc(100% + 12px) !important;
+    right: 0 !important;
+    z-index: 120 !important;
+    width: min(340px, calc(100vw - 24px)) !important;
+    padding: 10px !important;
+    color: var(--zip-navy) !important;
+    background: rgba(255, 255, 255, 0.98) !important;
+    border: 1px solid rgba(213, 224, 238, 0.96) !important;
+    border-radius: 18px !important;
+    box-shadow: 0 22px 48px rgba(12, 35, 68, 0.18) !important;
+    backdrop-filter: blur(18px) !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-dropdown[hidden],
+html[data-theme] body.internal-module-shell .topbar-dropdown[hidden],
+html[data-theme] body.internal-clean-page-shell .topbar-dropdown[hidden],
+body.internal-portal-shell .topbar-dropdown[hidden],
+body.internal-module-shell .topbar-dropdown[hidden],
+body.internal-clean-page-shell .topbar-dropdown[hidden] {
+    display: none !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-profile-dropdown,
+html[data-theme] body.internal-module-shell .topbar-profile-dropdown,
+html[data-theme] body.internal-clean-page-shell .topbar-profile-dropdown,
+body.internal-portal-shell .topbar-profile-dropdown,
+body.internal-module-shell .topbar-profile-dropdown,
+body.internal-clean-page-shell .topbar-profile-dropdown {
+    width: min(300px, calc(100vw - 24px)) !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-dropdown-head,
+html[data-theme] body.internal-module-shell .topbar-dropdown-head,
+html[data-theme] body.internal-clean-page-shell .topbar-dropdown-head,
+body.internal-portal-shell .topbar-dropdown-head,
+body.internal-module-shell .topbar-dropdown-head,
+body.internal-clean-page-shell .topbar-dropdown-head {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    padding: 8px 10px 10px !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-dropdown-head strong,
+html[data-theme] body.internal-module-shell .topbar-dropdown-head strong,
+html[data-theme] body.internal-clean-page-shell .topbar-dropdown-head strong,
+body.internal-portal-shell .topbar-dropdown-head strong,
+body.internal-module-shell .topbar-dropdown-head strong,
+body.internal-clean-page-shell .topbar-dropdown-head strong {
+    color: var(--zip-navy) !important;
+    font-size: 0.92rem !important;
+    font-weight: 850 !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-dropdown-head a,
+html[data-theme] body.internal-module-shell .topbar-dropdown-head a,
+html[data-theme] body.internal-clean-page-shell .topbar-dropdown-head a,
+body.internal-portal-shell .topbar-dropdown-head a,
+body.internal-module-shell .topbar-dropdown-head a,
+body.internal-clean-page-shell .topbar-dropdown-head a {
+    color: #1d6fd0 !important;
+    font-size: 0.78rem !important;
+    font-weight: 800 !important;
+    text-decoration: none !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-dropdown-item,
+html[data-theme] body.internal-module-shell .topbar-dropdown-item,
+html[data-theme] body.internal-clean-page-shell .topbar-dropdown-item,
+html[data-theme] body.internal-portal-shell .topbar-notification-item,
+html[data-theme] body.internal-module-shell .topbar-notification-item,
+html[data-theme] body.internal-clean-page-shell .topbar-notification-item,
+body.internal-portal-shell .topbar-dropdown-item,
+body.internal-module-shell .topbar-dropdown-item,
+body.internal-clean-page-shell .topbar-dropdown-item,
+body.internal-portal-shell .topbar-notification-item,
+body.internal-module-shell .topbar-notification-item,
+body.internal-clean-page-shell .topbar-notification-item {
+    display: flex !important;
+    width: 100% !important;
+    align-items: center !important;
+    gap: 10px !important;
+    min-height: 42px !important;
+    padding: 10px 12px !important;
+    color: var(--zip-navy) !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 12px !important;
+    font: inherit !important;
+    font-size: 0.9rem !important;
+    font-weight: 750 !important;
+    line-height: 1.25 !important;
+    text-align: left !important;
+    text-decoration: none !important;
+    cursor: pointer !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-dropdown-item:hover,
+html[data-theme] body.internal-module-shell .topbar-dropdown-item:hover,
+html[data-theme] body.internal-clean-page-shell .topbar-dropdown-item:hover,
+html[data-theme] body.internal-portal-shell .topbar-notification-item:hover,
+html[data-theme] body.internal-module-shell .topbar-notification-item:hover,
+html[data-theme] body.internal-clean-page-shell .topbar-notification-item:hover,
+body.internal-portal-shell .topbar-dropdown-item:hover,
+body.internal-module-shell .topbar-dropdown-item:hover,
+body.internal-clean-page-shell .topbar-dropdown-item:hover,
+body.internal-portal-shell .topbar-notification-item:hover,
+body.internal-module-shell .topbar-notification-item:hover,
+body.internal-clean-page-shell .topbar-notification-item:hover {
+    background: #eef4fb !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-dropdown-item > span:first-child,
+html[data-theme] body.internal-module-shell .topbar-dropdown-item > span:first-child,
+html[data-theme] body.internal-clean-page-shell .topbar-dropdown-item > span:first-child,
+body.internal-portal-shell .topbar-dropdown-item > span:first-child,
+body.internal-module-shell .topbar-dropdown-item > span:first-child,
+body.internal-clean-page-shell .topbar-dropdown-item > span:first-child {
+    width: 22px !important;
+    flex: 0 0 22px !important;
+    color: var(--zip-muted) !important;
+    text-align: center !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-notification-item,
+html[data-theme] body.internal-module-shell .topbar-notification-item,
+html[data-theme] body.internal-clean-page-shell .topbar-notification-item,
+body.internal-portal-shell .topbar-notification-item,
+body.internal-module-shell .topbar-notification-item,
+body.internal-clean-page-shell .topbar-notification-item {
+    align-items: flex-start !important;
+    min-height: 38px !important;
+    color: #233955 !important;
+    font-size: 0.84rem !important;
+    font-weight: 700 !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-notification-item small,
+html[data-theme] body.internal-module-shell .topbar-notification-item small,
+html[data-theme] body.internal-clean-page-shell .topbar-notification-item small,
+body.internal-portal-shell .topbar-notification-item small,
+body.internal-module-shell .topbar-notification-item small,
+body.internal-clean-page-shell .topbar-notification-item small {
+    display: block !important;
+    margin-top: 3px !important;
+    color: var(--zip-muted) !important;
+    font-size: 0.76rem !important;
+    font-weight: 600 !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-dropdown-divider,
+html[data-theme] body.internal-module-shell .topbar-dropdown-divider,
+html[data-theme] body.internal-clean-page-shell .topbar-dropdown-divider,
+body.internal-portal-shell .topbar-dropdown-divider,
+body.internal-module-shell .topbar-dropdown-divider,
+body.internal-clean-page-shell .topbar-dropdown-divider {
+    height: 1px !important;
+    margin: 8px 6px !important;
+    background: rgba(213, 224, 238, 0.96) !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-logout-form,
+html[data-theme] body.internal-module-shell .topbar-logout-form,
+html[data-theme] body.internal-clean-page-shell .topbar-logout-form,
+body.internal-portal-shell .topbar-logout-form,
+body.internal-module-shell .topbar-logout-form,
+body.internal-clean-page-shell .topbar-logout-form {
+    margin: 0 !important;
+}
+
+html[data-theme] body.internal-portal-shell .topbar-dropdown-item.is-danger,
+html[data-theme] body.internal-module-shell .topbar-dropdown-item.is-danger,
+html[data-theme] body.internal-clean-page-shell .topbar-dropdown-item.is-danger,
+body.internal-portal-shell .topbar-dropdown-item.is-danger,
+body.internal-module-shell .topbar-dropdown-item.is-danger,
+body.internal-clean-page-shell .topbar-dropdown-item.is-danger {
+    color: #8b1d1d !important;
+}
+
+@media (max-width: 1024px) {
+    html[data-theme] body.internal-portal-shell .app-grid,
+    body.internal-portal-shell .app-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 760px) {
+    html[data-theme] body.internal-portal-shell .summary-grid,
+    body.internal-portal-shell .summary-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    html[data-theme] body.internal-portal-shell .site-header.internal-app-topbar,
+    body.internal-portal-shell .site-header.internal-app-topbar {
+        grid-template-columns: minmax(0, 1fr) auto !important;
+        grid-template-areas:
+            "brand user"
+            "center center" !important;
+        gap: 14px !important;
+    }
+}
+
+@media (max-width: 560px) {
+    html[data-theme] body.internal-portal-shell .app-grid,
+    body.internal-portal-shell .app-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* WMS refactor pass: real WMS pages use a compact app-screen layout.
+   The goal is to stop legacy dashboard spacing from turning inventory
+   workflows into long landing pages. */
+@media (min-width: 861px) {
+    html[data-theme] body.wms-refactor-shell,
+    body.wms-refactor-shell,
+    html[data-theme] body.internal-wms-module-shell,
+    body.internal-wms-module-shell {
+        height: 100vh !important;
+        min-height: 100vh !important;
+        overflow: hidden !important;
+        background: #eef1f5 !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .module-header,
+    body.wms-refactor-shell .module-header,
+    html[data-theme] body.internal-wms-module-shell .module-header,
+    body.internal-wms-module-shell .module-header {
+        min-height: 64px !important;
+        padding: 9px clamp(18px, 3vw, 42px) !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .brand-logo,
+    body.wms-refactor-shell .brand-logo,
+    html[data-theme] body.internal-wms-module-shell .brand-logo,
+    body.internal-wms-module-shell .brand-logo {
+        min-height: 40px !important;
+        height: 40px !important;
+        min-width: 86px !important;
+        border-radius: 8px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .brand-logo-wide,
+    body.wms-refactor-shell .brand-logo-wide,
+    html[data-theme] body.internal-wms-module-shell .brand-logo-wide,
+    body.internal-wms-module-shell .brand-logo-wide {
+        min-width: 144px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .header-center-logo,
+    body.wms-refactor-shell .header-center-logo,
+    html[data-theme] body.internal-wms-module-shell .header-center-logo,
+    body.internal-wms-module-shell .header-center-logo {
+        width: 176px !important;
+        height: 42px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .header-center-logo img,
+    body.wms-refactor-shell .header-center-logo img,
+    html[data-theme] body.internal-wms-module-shell .header-center-logo img,
+    body.internal-wms-module-shell .header-center-logo img {
+        max-height: 42px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .breadcrumb-list,
+    body.wms-refactor-shell .breadcrumb-list,
+    html[data-theme] body.internal-wms-module-shell .breadcrumb-list,
+    body.internal-wms-module-shell .breadcrumb-list {
+        width: min(1500px, calc(100% - 32px)) !important;
+        min-height: 44px !important;
+        font-size: 0.78rem !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .layout,
+    body.wms-refactor-shell .layout,
+    html[data-theme] body.internal-wms-module-shell .layout,
+    body.internal-wms-module-shell .layout,
+    html[data-theme] body.wms-refactor-shell .main,
+    body.wms-refactor-shell .main,
+    html[data-theme] body.internal-wms-module-shell .main,
+    body.internal-wms-module-shell .main {
+        height: calc(100vh - 108px) !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .clean-module-layout,
+    body.wms-refactor-shell .clean-module-layout,
+    html[data-theme] body.internal-wms-module-shell .internal-module-layout,
+    body.internal-wms-module-shell .internal-module-layout {
+        width: min(1500px, calc(100% - 32px)) !important;
+        max-width: 1500px !important;
+        height: 100% !important;
+        min-height: 0 !important;
+        grid-template-columns: 198px minmax(0, 1fr) !important;
+        gap: 14px !important;
+        align-items: stretch !important;
+        padding: 12px 0 !important;
+        overflow: hidden !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .clean-module-sidebar,
+    body.wms-refactor-shell .clean-module-sidebar,
+    html[data-theme] body.internal-wms-module-shell .info-sidebar,
+    body.internal-wms-module-shell .info-sidebar,
+    html[data-theme] body.wms-refactor-shell .information-sidebar-card,
+    body.wms-refactor-shell .information-sidebar-card,
+    html[data-theme] body.internal-wms-module-shell .information-sidebar-card,
+    body.internal-wms-module-shell .information-sidebar-card {
+        width: 198px !important;
+        max-width: 198px !important;
+        height: 100% !important;
+        position: relative !important;
+        top: auto !important;
+        border-radius: 8px !important;
+        overflow: hidden !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .sidebar-title,
+    body.wms-refactor-shell .sidebar-title,
+    html[data-theme] body.internal-wms-module-shell .sidebar-title,
+    body.internal-wms-module-shell .sidebar-title {
+        padding: 13px 14px 12px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .sidebar-link,
+    body.wms-refactor-shell .sidebar-link,
+    html[data-theme] body.internal-wms-module-shell .sidebar-link,
+    body.internal-wms-module-shell .sidebar-link,
+    html[data-theme] body.wms-refactor-shell .hris-module-card,
+    body.wms-refactor-shell .hris-module-card,
+    html[data-theme] body.internal-wms-module-shell .hris-module-card,
+    body.internal-wms-module-shell .hris-module-card {
+        min-height: 42px !important;
+        padding: 9px 13px !important;
+        gap: 10px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .sidebar-icon,
+    body.wms-refactor-shell .sidebar-icon,
+    html[data-theme] body.internal-wms-module-shell .sidebar-icon,
+    body.internal-wms-module-shell .sidebar-icon,
+    html[data-theme] body.wms-refactor-shell .hris-module-nav-icon,
+    body.wms-refactor-shell .hris-module-nav-icon,
+    html[data-theme] body.internal-wms-module-shell .hris-module-nav-icon,
+    body.internal-wms-module-shell .hris-module-nav-icon {
+        width: 18px !important;
+        min-height: 18px !important;
+        flex-basis: 18px !important;
+        font-size: 0.9rem !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .clean-content-panel,
+    body.wms-refactor-shell .clean-content-panel,
+    html[data-theme] body.internal-wms-module-shell .content-panel,
+    body.internal-wms-module-shell .content-panel {
+        height: 100% !important;
+        min-height: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        padding: 16px 18px !important;
+        overflow: hidden !important;
+        border-radius: 8px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .page-hero,
+    body.wms-refactor-shell .page-hero {
+        min-height: 0 !important;
+        display: flex !important;
+        align-items: flex-start !important;
+        justify-content: space-between !important;
+        gap: 14px !important;
+        margin: 0 0 10px !important;
+        padding: 0 !important;
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .page-hero-text,
+    body.wms-refactor-shell .page-hero-text {
+        min-width: 0 !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .page-eyebrow,
+    body.wms-refactor-shell .page-eyebrow {
+        margin-bottom: 3px !important;
+        font-size: 0.66rem !important;
+        letter-spacing: 0.12em !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .page-hero h1,
+    body.wms-refactor-shell .page-hero h1 {
+        margin: 0 !important;
+        font-size: clamp(1.5rem, 2.2vw, 2.08rem) !important;
+        line-height: 1.04 !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .page-content,
+    body.wms-refactor-shell .page-content,
+    html[data-theme] body.internal-wms-module-shell .page-content,
+    body.internal-wms-module-shell .page-content {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+        padding: 0 !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .wms-page-stack,
+    body.wms-refactor-shell .wms-page-stack {
+        height: 100% !important;
+        min-height: 0 !important;
+        display: grid !important;
+        grid-template-rows: auto auto minmax(0, 1fr) !important;
+        gap: 10px !important;
+        overflow: hidden !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .wms-step-grid,
+    body.wms-refactor-shell .wms-step-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 8px !important;
+        margin: 0 !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .wms-step-card,
+    body.wms-refactor-shell .wms-step-card {
+        min-height: 0 !important;
+        padding: 10px 12px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .wms-step-card p,
+    body.wms-refactor-shell .wms-step-card p {
+        display: none !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .wms-kpi-grid,
+    body.wms-refactor-shell .wms-kpi-grid {
+        grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+        gap: 8px !important;
+        margin: 0 !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .wms-kpi-card,
+    body.wms-refactor-shell .wms-kpi-card {
+        min-height: 0 !important;
+        padding: 10px 12px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .wms-kpi-card span,
+    body.wms-refactor-shell .wms-kpi-card span {
+        font-size: 0.64rem !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .wms-kpi-card strong,
+    body.wms-refactor-shell .wms-kpi-card strong {
+        margin-top: 4px !important;
+        font-size: 1.05rem !important;
+        line-height: 1.08 !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .wms-kpi-card small,
+    body.wms-refactor-shell .wms-kpi-card small {
+        display: none !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell :is(.form-box, .table-box, .box, .import-box, .panel, .ops-batch-box),
+    body.wms-refactor-shell :is(.form-box, .table-box, .box, .import-box, .panel, .ops-batch-box) {
+        min-height: 0 !important;
+        max-height: 100% !important;
+        margin: 0 !important;
+        padding: 13px 14px !important;
+        overflow: auto !important;
+        border-radius: 8px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .section-title,
+    body.wms-refactor-shell .section-title {
+        margin-bottom: 9px !important;
+        gap: 10px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .section-title h2,
+    html[data-theme] body.wms-refactor-shell .section-title h3,
+    body.wms-refactor-shell .section-title h2,
+    body.wms-refactor-shell .section-title h3 {
+        font-size: 0.96rem !important;
+        line-height: 1.18 !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .section-title p,
+    body.wms-refactor-shell .section-title p,
+    html[data-theme] body.wms-refactor-shell .helper-text,
+    body.wms-refactor-shell .helper-text {
+        font-size: 0.74rem !important;
+        line-height: 1.35 !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .form-grid,
+    body.wms-refactor-shell .form-grid,
+    html[data-theme] body.wms-refactor-shell .ops-entry-grid,
+    body.wms-refactor-shell .ops-entry-grid {
+        gap: 9px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell :is(input, select, textarea),
+    body.wms-refactor-shell :is(input, select, textarea) {
+        min-height: 38px !important;
+        padding: 8px 10px !important;
+        font-size: 0.84rem !important;
+        border-radius: 7px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell :is(button, .ghost-button, .button-primary, .button-secondary, .action-link),
+    body.wms-refactor-shell :is(button, .ghost-button, .button-primary, .button-secondary, .action-link) {
+        min-height: 36px !important;
+        padding: 0 12px !important;
+        font-size: 0.82rem !important;
+        border-radius: 7px !important;
+    }
+
+    html[data-theme] body.internal-wms-module-shell .internal-module-panel,
+    body.internal-wms-module-shell .internal-module-panel {
+        min-height: 0 !important;
+        height: 100% !important;
+    }
+
+    html[data-theme] body.internal-wms-module-shell .information-panel-head,
+    body.internal-wms-module-shell .information-panel-head {
+        max-width: 760px !important;
+        margin-bottom: 16px !important;
+    }
+
+    html[data-theme] body.internal-wms-module-shell .information-panel-head h1,
+    body.internal-wms-module-shell .information-panel-head h1 {
+        font-size: clamp(1.8rem, 2.8vw, 2.6rem) !important;
+    }
+
+    html[data-theme] body.internal-wms-module-shell .information-policy-grid,
+    body.internal-wms-module-shell .information-policy-grid {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        align-content: start !important;
+        gap: 12px !important;
+        overflow: auto !important;
+    }
+
+    html[data-theme] body.internal-wms-module-shell .information-policy-card,
+    body.internal-wms-module-shell .information-policy-card {
+        min-height: 86px !important;
+        padding: 14px 16px !important;
+    }
+
+    html[data-theme] body.internal-wms-module-shell .internal-module-footer,
+    body.internal-wms-module-shell .internal-module-footer {
+        display: none !important;
+    }
+}
+
+@media (max-width: 860px) {
+    html[data-theme] body.wms-refactor-shell,
+    body.wms-refactor-shell,
+    html[data-theme] body.internal-wms-module-shell,
+    body.internal-wms-module-shell {
+        overflow-x: hidden !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .clean-module-layout,
+    body.wms-refactor-shell .clean-module-layout,
+    html[data-theme] body.internal-wms-module-shell .internal-module-layout,
+    body.internal-wms-module-shell .internal-module-layout {
+        grid-template-columns: minmax(0, 1fr) !important;
+        padding: 12px !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .clean-module-sidebar,
+    body.wms-refactor-shell .clean-module-sidebar,
+    html[data-theme] body.internal-wms-module-shell .info-sidebar,
+    body.internal-wms-module-shell .info-sidebar {
+        width: 100% !important;
+        max-width: none !important;
+    }
+
+    html[data-theme] body.wms-refactor-shell .wms-step-grid,
+    html[data-theme] body.wms-refactor-shell .wms-kpi-grid,
+    body.wms-refactor-shell .wms-step-grid,
+    body.wms-refactor-shell .wms-kpi-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+}

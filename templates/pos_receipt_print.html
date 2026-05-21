@@ -4,16 +4,56 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Nota {{ sale.receipt_no }} | {{ receipt_brand.business_name or store_name }}</title>
-<script type="application/json" id="receipt-performance-mode-data">{{ receipt_performance_mode | tojson }}</script>
-<script>
-(() => {
-    const performanceModeNode = document.getElementById("receipt-performance-mode-data");
-    let forcedMode = "";
-    try {
-        forcedMode = JSON.parse(performanceModeNode ? performanceModeNode.textContent : "\"\"") || "";
-    } catch (error) {
-        forcedMode = "";
+<script id="receiptPrintClientConfigData" type="application/json">
+{{ {
+    "receiptCopy": receipt_copy,
+    "receiptFollowupCopy": receipt_followup_copy,
+    "receiptLayout": receipt_layout,
+    "receiptPerformanceMode": receipt_performance_mode,
+    "autoClose": auto_close,
+    "autoPrint": auto_print,
+    "pdfMode": pdf_mode,
+    "nativePrintPayload": {
+        "receipt_copy": receipt_copy,
+        "copy_label": receipt_copy_label,
+        "store_name": receipt_brand.business_name or store_name,
+        "business_address": (receipt_brand.business_address or "") if receipt_copy != "store" else "",
+        "receipt_no": sale.receipt_no,
+        "cashier_name": sale.cashier_receipt_label,
+        "customer_name": sale.customer_name,
+        "sale_datetime": sale.sale_date ~ " " ~ sale.created_time_label,
+        "payment_method": sale.payment_method,
+        "payment_method_label": sale.payment_method_label,
+        "payment_breakdown_label": sale.get("payment_breakdown_label") or "",
+        "total_items": sale.total_items,
+        "subtotal_amount_label": sale.subtotal_amount_label,
+        "discount_amount_label": sale.discount_amount_label,
+        "tax_amount_label": sale.tax_amount_label,
+        "total_amount_label": sale.total_amount_label,
+        "paid_amount_label": sale.paid_amount_label,
+        "change_amount_label": sale.change_amount_label,
+        "loyalty_summary_title": sale.loyalty_summary_title,
+        "loyalty_lines": sale.loyalty_summary_lines,
+        "thank_you_text": (receipt_brand.thank_you_text or ("Terima kasih atas kunjungan Anda di " ~ (receipt_brand.business_name or store_name) ~ ".")) if receipt_copy != "store" else "",
+        "feedback_line": (receipt_brand.feedback_line or ("Kritik & Saran: " ~ (receipt_brand.customer_service_phone or store_phone or "-"))) if receipt_copy != "store" else "",
+        "social_label": (receipt_brand.social_label or "Social Media Kami di:") if receipt_copy != "store" else "",
+        "social_media_url": (receipt_brand.social_media_url or "") if receipt_copy != "store" else "",
+        "store_copy_note": "",
+        "items": sale["items"]
     }
+}|tojson }}
+</script>
+<script>
+window.receiptPrintClientConfig = (() => {
+    const node = document.getElementById("receiptPrintClientConfigData");
+    try {
+        return JSON.parse(node?.textContent || "{}");
+    } catch (error) {
+        return {};
+    }
+})();
+(() => {
+    const forcedMode = window.receiptPrintClientConfig.receiptPerformanceMode || "auto";
     if (forcedMode === "full") {
         document.documentElement.dataset.receiptPerformance = "full";
         return;
@@ -60,12 +100,6 @@
 
     * {
         box-sizing: border-box;
-    }
-
-    html {
-        color-scheme: light;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
     }
 
     body {
@@ -539,12 +573,6 @@
         line-height: 1.32;
     }
 
-    body.pdf-mode,
-    body.pdf-mode * {
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-    }
-
     body.pdf-mode:not(.thermal-layout) .receipt-shell {
         max-width: none;
         gap: 0;
@@ -615,8 +643,6 @@
     body.pdf-mode:not(.thermal-layout) .receipt-info-row {
         padding: 7px 9px;
         border-radius: 12px;
-        break-inside: avoid;
-        page-break-inside: avoid;
     }
 
     body.pdf-mode:not(.thermal-layout) .receipt-info-row strong {
@@ -627,8 +653,6 @@
         gap: 3px;
         padding: 6px 8px;
         border-radius: 12px;
-        break-inside: avoid;
-        page-break-inside: avoid;
     }
 
     body.pdf-mode:not(.thermal-layout) .receipt-item-name {
@@ -742,12 +766,6 @@
         @page {
             size: A4 portrait;
             margin: 4mm;
-        }
-
-        html {
-            color-scheme: light;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
         }
 
         body {
@@ -1141,12 +1159,6 @@
     }
 
     @media print {
-        html {
-            color-scheme: light;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-        }
-
         body.thermal-layout {
             padding: 0;
             background: #ffffff;
@@ -1503,68 +1515,19 @@
     {% endif %}
 </div>
 
-<script type="application/json" id="receipt-copy-data">{{ receipt_copy | tojson }}</script>
-<script type="application/json" id="receipt-followup-copy-data">{{ receipt_followup_copy | tojson }}</script>
-<script type="application/json" id="receipt-layout-data">{{ receipt_layout | tojson }}</script>
-<script type="application/json" id="receipt-performance-mode-runtime-data">{{ receipt_performance_mode | tojson }}</script>
-<script type="application/json" id="receipt-auto-close-data">{{ auto_close | tojson }}</script>
-<script type="application/json" id="receipt-auto-print-data">{{ (auto_print and not pdf_mode) | tojson }}</script>
-<script type="application/json" id="receipt-native-print-payload-data">{{ {
-    "receipt_copy": receipt_copy,
-    "copy_label": receipt_copy_label,
-    "store_name": receipt_brand.business_name or store_name,
-    "business_address": (receipt_brand.business_address or "") if receipt_copy != "store" else "",
-    "receipt_no": sale.receipt_no,
-    "cashier_name": sale.cashier_receipt_label,
-    "customer_name": sale.customer_name,
-    "sale_datetime": sale.sale_date ~ " " ~ sale.created_time_label,
-    "payment_method": sale.payment_method,
-    "payment_method_label": sale.payment_method_label,
-    "payment_breakdown_label": sale.get("payment_breakdown_label") or "",
-    "total_items": sale.total_items,
-    "subtotal_amount_label": sale.subtotal_amount_label,
-    "discount_amount_label": sale.discount_amount_label,
-    "tax_amount_label": sale.tax_amount_label,
-    "total_amount_label": sale.total_amount_label,
-    "paid_amount_label": sale.paid_amount_label,
-    "change_amount_label": sale.change_amount_label,
-    "loyalty_summary_title": sale.loyalty_summary_title,
-    "loyalty_lines": sale.loyalty_summary_lines,
-    "thank_you_text": (receipt_brand.thank_you_text or ("Terima kasih atas kunjungan Anda di " ~ (receipt_brand.business_name or store_name) ~ ".")) if receipt_copy != "store" else "",
-    "feedback_line": (receipt_brand.feedback_line or ("Kritik & Saran: " ~ (receipt_brand.customer_service_phone or store_phone or "-"))) if receipt_copy != "store" else "",
-    "social_label": (receipt_brand.social_label or "Social Media Kami di:") if receipt_copy != "store" else "",
-    "social_media_url": (receipt_brand.social_media_url or "") if receipt_copy != "store" else "",
-    "store_copy_note": "",
-    "items": sale["items"],
-} | tojson }}</script>
 <script>
-function readReceiptJsonData(elementId, fallbackValue) {
-    const node = document.getElementById(elementId);
-    if (!node) {
-        return fallbackValue;
-    }
-    try {
-        const parsedValue = JSON.parse(node.textContent || "null");
-        return parsedValue === null || parsedValue === undefined ? fallbackValue : parsedValue;
-    } catch (error) {
-        console.warn("Invalid receipt JSON payload:", elementId, error);
-        return fallbackValue;
-    }
-}
-
 const receiptRuntimeUrl = new URL(window.location.href);
 const receiptDesktopSource = String(receiptRuntimeUrl.searchParams.get("source") || "");
-const receiptCopy = readReceiptJsonData("receipt-copy-data", "");
-const receiptFollowupCopy = readReceiptJsonData("receipt-followup-copy-data", "");
-const receiptLayout = readReceiptJsonData("receipt-layout-data", "");
-const receiptPerformanceMode = readReceiptJsonData("receipt-performance-mode-runtime-data", "");
-const receiptAutoClose = Boolean(readReceiptJsonData("receipt-auto-close-data", false));
-const receiptAutoPrint = Boolean(readReceiptJsonData("receipt-auto-print-data", false));
+const receiptClientConfig = window.receiptPrintClientConfig || {};
+const receiptCopy = receiptClientConfig.receiptCopy || "customer";
+const receiptFollowupCopy = receiptClientConfig.receiptFollowupCopy || "";
+const receiptLayout = receiptClientConfig.receiptLayout || "thermal";
+const receiptPerformanceMode = receiptClientConfig.receiptPerformanceMode || "auto";
 const receiptDesktopBridge = String(
     receiptRuntimeUrl.searchParams.get("desktop_bridge")
     || (receiptDesktopSource === "desktop-kasir" ? "http://127.0.0.1:17844" : "")
 ).replace(/\/+$/, "");
-const receiptNativePrintPayload = readReceiptJsonData("receipt-native-print-payload-data", {});
+const receiptNativePrintPayload = receiptClientConfig.nativePrintPayload || {};
 let receiptPrintFlowHandled = false;
 
 function buildReceiptRuntimeUrl(url) {
@@ -1662,7 +1625,7 @@ function finalizeReceiptPrintFlow() {
                 window.location.replace(buildReceiptFollowupUrl(receiptFollowupCopy));
                 return;
             }
-            if (receiptAutoClose) {
+            if (receiptClientConfig.autoClose) {
                 window.close();
             }
         });
@@ -1700,7 +1663,7 @@ if (!document.documentElement.classList.contains("receipt-lite-mode")) {
     });
 }
 
-if (receiptAutoPrint) {
+if (receiptClientConfig.autoPrint && !receiptClientConfig.pdfMode) {
     window.addEventListener("load", () => {
         window.setTimeout(() => {
             window.posReceiptPrintCurrentPage();

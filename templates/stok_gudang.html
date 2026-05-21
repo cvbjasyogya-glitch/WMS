@@ -1,34 +1,235 @@
 ﻿{% extends "base.html" %}
 
-{% block title %}Stok & Produk | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Inventori Gudang{% endblock %}
-{% block page_title %}Stok & Produk{% endblock %}
-{% block page_subtitle %}Cari stok, filter, lalu aksi.{% endblock %}
+{% block title %}Daftar Stok Item | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Warehouse Management{% endblock %}
+{% block page_title %}Daftar Stok Item{% endblock %}
+{% block page_subtitle %}Data stok aktif, filter, dan route ubah item.{% endblock %}
 {% block page_content_class %}page-content-bleed{% endblock %}
+{% block body_class %}wms-stock-reference-shell {% endblock %}
+
+{% block extra_head %}
+{{ super() }}
+<link rel="stylesheet" href="{{ asset_url('css/wms_stock_reference.css') }}?v={{ app_version|default('20260520', true) }}">
+{% endblock %}
 
 {% block page_actions %}
+{% if active_workspace != 'products' %}
 <div class="split-actions">
-    {% if can_full_manage_product_master %}
-    <button
-        type="button"
-        class="btn-link"
-        data-ipos4-import-open
-    >
-        Import iPOS4
-    </button>
-    {% endif %}
     <a
-        href="/stock/export?q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}"
-        class="btn-link"
-        id="stockExportLink"
+        href="/wms/input-item?warehouse={{ warehouse_id }}"
+        class="button-primary"
     >
-        Export Stok
+        <span aria-hidden="true">+</span>
+        Tambah Item
     </a>
 </div>
+{% endif %}
+{% endblock %}
+
+{% block page_header %}
+{% if active_workspace != 'products' %}
+<section class="content-header wms-reference-header" aria-labelledby="wms-title">
+    <div>
+        <p class="eyebrow">Warehouse Management</p>
+        <h2 id="wms-title">Daftar Stok Item</h2>
+        <p>Data stok aktif, filter, dan route ubah item.</p>
+    </div>
+    {% if page_actions_markup|trim %}
+    <div class="wms-reference-actions">
+        {{ page_actions_markup|safe }}
+    </div>
+    {% endif %}
+</section>
+{% endif %}
 {% endblock %}
 
 {% block content %}
-<div class="wms-page-stack stock-page-shell stock-clean-shell">
+<div class="wms-zip-stock-page {% if active_workspace == 'products' %}is-hidden{% endif %}" data-wms-zip-stock-page>
+    <div class="summary-grid stock-summary-grid" aria-label="Ringkasan BJAS WMS">
+        <article class="summary-card">
+            <span>Total Item</span>
+            <strong data-stock-summary="total_variants">{{ summary.total_variants }}</strong>
+            <p>Item aktif</p>
+        </article>
+        <article class="summary-card">
+            <span>Stok Aman</span>
+            <strong data-stock-summary="ready_count">{{ summary.ready_count }}</strong>
+            <p>Di atas batas minimum</p>
+        </article>
+        <article class="summary-card">
+            <span>Stok Menipis</span>
+            <strong data-stock-summary="low_count">{{ summary.low_count }}</strong>
+            <p>Perlu restock cepat</p>
+        </article>
+        <article class="summary-card">
+            <span>Nilai Pokok</span>
+            <strong data-stock-summary="inventory_value">
+                {% if can_view_inventory_value %}Rp {{ "{:,.0f}".format(summary.inventory_value) }}{% else %}Terkunci{% endif %}
+            </strong>
+            <p>Estimasi modal stok</p>
+        </article>
+    </div>
+
+    <section class="filter-panel" aria-labelledby="filter-title">
+        <div class="section-title">
+            <div>
+                <h3 id="filter-title">Cari dan filter stok</h3>
+                <p>Cari item aktif berdasarkan kode, nama, atau kondisi stok.</p>
+            </div>
+            <a class="button-secondary" href="/stock/">Reset</a>
+        </div>
+
+        <form method="GET" class="filter-grid zip-stock-filter-grid" data-zip-stock-filter-form>
+            <input type="hidden" name="warehouse" value="{{ warehouse_id }}">
+            <input type="hidden" name="start_date" value="{{ start_date or '' }}">
+            <input type="hidden" name="end_date" value="{{ end_date or '' }}">
+            <input type="hidden" name="sort" value="{{ sort }}">
+            <label class="field field-wide">
+                <span>Cari kode item / nama item</span>
+                <input type="search" name="q" value="{{ search }}" placeholder="Contoh: 000030, sepatu, cone" autocomplete="off">
+            </label>
+            <label class="field">
+                <span>Jenis</span>
+                <select name="stock_state">
+                    <option value="all" {% if stock_state == 'all' %}selected{% endif %}>Semua Jenis</option>
+                    <option value="ready" {% if stock_state == 'ready' %}selected{% endif %}>Stok Aman</option>
+                    <option value="low" {% if stock_state == 'low' %}selected{% endif %}>Stok Menipis</option>
+                    <option value="zero" {% if stock_state == 'zero' %}selected{% endif %}>Stok Habis</option>
+                </select>
+            </label>
+            <div class="filter-actions">
+                <button class="button-primary zip-filter-submit" type="submit">Filter</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="table-section" aria-labelledby="stock-table-title" data-scrollable-table="1">
+        <div class="section-title">
+            <div>
+                <h3 id="stock-table-title">Item Inventory</h3>
+                <p>{{ pagination.total_items|default(data|length) }} produk tampil dari data stok.</p>
+            </div>
+        </div>
+
+        <nav class="stock-action-bar" aria-label="Aksi cepat stok" data-stock-command-grid>
+            {% if can_full_manage_product_master %}
+            <button type="button" class="stock-quick-action" data-ipos4-import-open>Import iPOS4</button>
+            {% endif %}
+            <a href="/stock/export?q={{ search }}&warehouse={{ warehouse_id }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}" class="stock-quick-action" id="stockExportLink">Export Stok</a>
+            {% if can_full_manage_product_master %}
+            <button type="button" class="stock-quick-action" data-stock-search-replace-open>Search & Replace</button>
+            {% endif %}
+        </nav>
+
+        <div class="table-wrap stock-table-viewport" data-stock-table-viewport>
+            {% if data %}
+            <table class="stock-table">
+                <colgroup class="stock-table-columns {% if can_bulk_adjust_ui %}has-select{% else %}no-select{% endif %}">
+                    {% if can_bulk_adjust_ui %}
+                    <col class="stock-col-check">
+                    {% endif %}
+                    <col class="stock-col-code">
+                    <col class="stock-col-name">
+                    <col class="stock-col-category">
+                    <col class="stock-col-qty">
+                    <col class="stock-col-price">
+                    <col class="stock-col-price">
+                    <col class="stock-col-price">
+                    <col class="stock-col-price">
+                    <col class="stock-col-action">
+                </colgroup>
+                <thead>
+                    <tr>
+                        {% if can_bulk_adjust_ui %}
+                        <th class="stock-col-select"><input type="checkbox" id="checkAll" aria-label="Pilih semua stok"></th>
+                        {% endif %}
+                        <th>Kode Item</th>
+                        <th>Nama Item</th>
+                        <th>Jenis</th>
+                        <th>Stok</th>
+                        <th>Harga Retail</th>
+                        <th>Harga Diskon</th>
+                        <th>Harga Jual</th>
+                        <th>Harga Pokok</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in data %}
+                    {% set best_price = s.price_nett if s.price_nett > 0 else (s.price_discount if s.price_discount > 0 else s.price_retail) %}
+                    <tr
+                        class="{% if s.qty == 0 %}zero{% elif s.qty < 5 %}warning{% endif %}"
+                        data-stock-row
+                        data-qty="{{ s.qty }}"
+                        data-best-price="{{ best_price }}"
+                        data-product-id="{{ s.product_id }}"
+                        data-variant-id="{{ s.variant_id }}"
+                        data-product-sku="{{ s.sku|e }}"
+                        data-product-name="{{ s.name|e }}"
+                        data-product-category="{{ (s.category_name or '')|e }}"
+                        data-product-unit-label="{{ (s.unit_label or 'pcs')|e }}"
+                        data-product-variant-mode="{{ (s.variant_mode or 'variant')|e }}"
+                        data-product-variant="{{ s.variant|e }}"
+                        data-price-retail="{{ s.price_retail }}"
+                        data-price-discount="{{ s.price_discount }}"
+                        data-price-nett="{{ s.price_nett }}"
+                        data-price-cost="{{ s.price_cost }}"
+                        data-stock-editable-row="{% if can('manage_product_master') %}1{% else %}0{% endif %}"
+                    >
+                        {% if can_bulk_adjust_ui %}
+                        <td class="stock-col-select"><input type="checkbox" class="row-check" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" aria-label="Pilih {{ s.sku }}"></td>
+                        {% endif %}
+                        <td><span class="sku-chip">{{ s.sku }}</span></td>
+                        <td>
+                            <div class="stock-name-cell">
+                                <strong>{{ s.name }}</strong>
+                                <small>{{ s.variant or 'Non-variant' }} · Update {{ s.created_at_label or '-' }}</small>
+                            </div>
+                        </td>
+                        <td>{{ s.category_name or '-' }}</td>
+                        <td>
+                            <span
+                                class="stock-count"
+                                data-stock-qty-badge
+                                {% if can_adjust_stock_ui %}data-stock-qty-edit-trigger tabindex="0" role="button" title="Klik kanan untuk edit stok"{% endif %}
+                            >{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
+                            {% if s.qty <= 0 %}
+                            <span class="stock-status-badge is-danger" data-stock-status-badge>Kosong</span>
+                            {% elif s.qty < 5 %}
+                            <span class="stock-status-badge is-warning" data-stock-status-badge>Menipis</span>
+                            {% else %}
+                            <span class="stock-status-badge is-safe" data-stock-status-badge>Aman</span>
+                            {% endif %}
+                        </td>
+                        <td class="number-cell">Rp {{ "{:,.0f}".format(s.price_retail or 0) }}</td>
+                        <td class="number-cell">Rp {{ "{:,.0f}".format(s.price_discount or 0) }}</td>
+                        <td class="number-cell">Rp {{ "{:,.0f}".format(best_price or 0) }}</td>
+                        <td class="number-cell">Rp {{ "{:,.0f}".format(s.price_cost or 0) }}</td>
+                        <td>
+                            {% if can('manage_product_master') %}
+                            <button type="button" class="action-link" data-stock-group-edit-trigger>Ubah</button>
+                            {% else %}
+                            <span class="action-link is-disabled">Lihat</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty-state">Tidak ada produk yang cocok dengan filter.</p>
+            {% endif %}
+        </div>
+
+        {% if data %}
+        <div class="stock-pagination-strip">
+            {% include "partials/pagination_nav.html" %}
+        </div>
+        {% endif %}
+    </section>
+</div>
+
+<div class="wms-page-stack stock-page-shell stock-clean-shell wms-legacy-stock-shell {% if active_workspace != 'products' %}is-hidden{% endif %} {% if active_workspace == 'products' %}is-products-workspace{% else %}is-inventory-workspace{% endif %}">
 <div class="summary stock-summary-grid" id="stockSummaryGrid">
     <div class="card-mini stock-mini-card">
         <div class="stock-mini-topline"><p>Total Varian</p></div>
@@ -53,7 +254,7 @@
 
 <div class="workspace-switch" id="stockWorkspaceSwitch" aria-label="Pilih panel kerja stok dan produk">
     <a href="/stock?warehouse={{ warehouse_id }}&q={{ search }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}" class="{% if active_workspace != 'products' %}active{% endif %}">Inventori</a>
-    <a href="/stock?workspace=products&warehouse={{ warehouse_id }}&q={{ search }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}&product_search={{ product_studio.search }}" class="{% if active_workspace == 'products' %}active{% endif %}">Studio Produk</a>
+    <a href="/wms/input-item?warehouse={{ warehouse_id }}&q={{ search }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}&product_search={{ product_studio.search }}" class="{% if active_workspace == 'products' %}active{% endif %}">Studio Produk</a>
 </div>
 
 <div class="wms-split-band stock-workband">
@@ -98,9 +299,6 @@
             {% if can_full_manage_product_master %}
             <button type="button" class="ghost-button" data-stock-search-replace-open>Search & Replace</button>
             {% endif %}
-            {% if can_bulk_adjust_ui %}
-            <button type="button" class="ghost-button" onclick="bulkAdjust()">Adjust Terpilih</button>
-            {% endif %}
         </form>
         <small class="helper-text" data-stock-live-search-status aria-live="polite"></small>
         </div>
@@ -113,16 +311,17 @@
             <h2>Daftar Stok</h2>
         </div>
         <div class="stock-quick-actions" data-stock-command-grid>
-            <a href="/inbound" class="stock-quick-action">Tambah</a>
-            <a href="/outbound" class="stock-quick-action">Kurangi</a>
-            <a href="/transfers" class="stock-quick-action">Pindah</a>
-            <a href="/so" class="stock-quick-action">SO</a>
+            <a href="/wms/inbound" class="stock-quick-action">Tambah</a>
+            <a href="/wms/outbound" class="stock-quick-action">Kurangi</a>
+            <a href="/wms/transfers" class="stock-quick-action">Pindah</a>
+            <a href="/wms/stock-opname" class="stock-quick-action">SO</a>
             {% if can_full_manage_product_master %}
-            <a href="#productStudioPanel" class="stock-quick-action">Produk</a>
+            <a href="/wms/input-item?warehouse={{ warehouse_id }}&q={{ search }}&sort={{ sort }}&stock_state={{ stock_state }}&start_date={{ start_date or '' }}&end_date={{ end_date or '' }}&product_search={{ product_studio.search }}" class="stock-quick-action">Produk</a>
             {% endif %}
         </div>
     </div>
 
+    <div class="stock-table-viewport" data-stock-table-viewport>
     {% if data %}
     <table class="stock-table">
         <thead>
@@ -278,9 +477,6 @@
                                         <th class="stock-col stock-col-variant">Variant</th>
                                         <th class="stock-col stock-col-qty">Qty</th>
                                         <th class="stock-col stock-col-status">Status</th>
-                                        {% if can_adjust_stock_ui %}
-                                        <th class="stock-col stock-col-adjust">Adjust</th>
-                                        {% endif %}
                                         <th class="stock-col stock-col-price">Retail</th>
                                         <th class="stock-col stock-col-price">Discount</th>
                                         <th class="stock-col stock-col-price">Nett</th>
@@ -333,11 +529,11 @@
                                         </td>
                                         <td class="stock-col stock-col-qty qty-text">
                                             {% if s.qty == 0 %}
-                                            <span class="badge red" data-stock-qty-badge>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
+                                            <span class="badge red" data-stock-qty-badge {% if can_adjust_stock_ui %}data-stock-qty-edit-trigger tabindex="0" role="button" title="Klik kanan untuk edit stok"{% endif %}>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
                                             {% elif s.qty < 5 %}
-                                            <span class="badge orange" data-stock-qty-badge>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
+                                            <span class="badge orange" data-stock-qty-badge {% if can_adjust_stock_ui %}data-stock-qty-edit-trigger tabindex="0" role="button" title="Klik kanan untuk edit stok"{% endif %}>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
                                             {% else %}
-                                            <span class="badge green" data-stock-qty-badge>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
+                                            <span class="badge green" data-stock-qty-badge {% if can_adjust_stock_ui %}data-stock-qty-edit-trigger tabindex="0" role="button" title="Klik kanan untuk edit stok"{% endif %}>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
                                             {% endif %}
                                         </td>
                                         <td class="stock-col stock-col-status">
@@ -349,14 +545,6 @@
                                             <span class="badge green" data-stock-status-badge>Aman</span>
                                             {% endif %}
                                         </td>
-                                        {% if can_adjust_stock_ui %}
-                                        <td class="stock-col stock-col-adjust">
-                                            <div class="stock-adjust-actions">
-                                                <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="Qty">
-                                                <button type="button" class="stock-adjust-button" onclick="adjustStock(this)">Simpan</button>
-                                            </div>
-                                        </td>
-                                        {% endif %}
                                         <td class="stock-col stock-col-price">
                                             {% if can('manage_product_master') %}
                                             <div class="money-input">
@@ -467,11 +655,11 @@
                 </td>
                 <td class="qty-text">
                     {% if s.qty == 0 %}
-                    <span class="badge red" data-stock-qty-badge>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
+                    <span class="badge red" data-stock-qty-badge {% if can_adjust_stock_ui %}data-stock-qty-edit-trigger tabindex="0" role="button" title="Klik kanan untuk edit stok"{% endif %}>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
                     {% elif s.qty < 5 %}
-                    <span class="badge orange" data-stock-qty-badge>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
+                    <span class="badge orange" data-stock-qty-badge {% if can_adjust_stock_ui %}data-stock-qty-edit-trigger tabindex="0" role="button" title="Klik kanan untuk edit stok"{% endif %}>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
                     {% else %}
-                    <span class="badge green" data-stock-qty-badge>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
+                    <span class="badge green" data-stock-qty-badge {% if can_adjust_stock_ui %}data-stock-qty-edit-trigger tabindex="0" role="button" title="Klik kanan untuk edit stok"{% endif %}>{{ s.qty }} {{ s.unit_label or 'pcs' }}</span>
                     {% endif %}
                 </td>
                 <td>
@@ -483,14 +671,6 @@
                     <span class="badge green" data-stock-status-badge>Aman</span>
                     {% endif %}
                 </td>
-                {% if can_adjust_stock_ui %}
-                <td>
-                    <div class="stock-adjust-actions">
-                        <input type="number" class="adjust-input" data-product="{{ s.product_id }}" data-variant="{{ s.variant_id }}" data-warehouse="{{ warehouse_id }}" placeholder="Qty">
-                        <button type="button" class="stock-adjust-button" onclick="adjustStock(this)">Simpan</button>
-                    </div>
-                </td>
-                {% endif %}
                 <td>
                     {% if can('manage_product_master') %}
                     <div class="money-input">
@@ -540,10 +720,15 @@
             {% endfor %}
         </tbody>
     </table>
-
-    {% include "partials/pagination_nav.html" %}
     {% else %}
     <div class="empty-state">Belum ada stok yang cocok dengan filter saat ini.</div>
+    {% endif %}
+    </div>
+
+    {% if data %}
+    <div class="stock-pagination-strip">
+    {% include "partials/pagination_nav.html" %}
+    </div>
     {% endif %}
 </div>
 
@@ -619,32 +804,6 @@
                 <button type="submit" id="ipos4ImportSubmitButton">Mulai Import iPOS4</button>
                 <button type="button" class="ghost-button danger" id="ipos4UndoImportButton" onclick="undoLatestIpos4Import()" hidden>Undo Import iPOS4 Terakhir</button>
                 <button type="button" class="ghost-button" data-ipos4-import-close>Tutup</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<div class="picker-modal" id="productActionModal" hidden>
-    <div class="picker-modal-backdrop" data-product-action-cancel></div>
-    <div class="picker-modal-panel stock-edit-modal-panel" role="dialog" aria-modal="true" aria-labelledby="productActionModalTitle">
-        <div class="section-title">
-            <div>
-                <h2 id="productActionModalTitle">Konfirmasi Aksi Produk</h2>
-                <p id="productActionModalCopy">Periksa aksi sebelum melanjutkan.</p>
-            </div>
-            <button type="button" class="ghost-button" data-product-action-cancel>Tutup</button>
-        </div>
-
-        <form id="productActionModalForm" class="stock-edit-detail-form">
-            <div id="productActionModalPhraseWrap">
-                <label for="productActionModalInput" id="productActionModalInputLabel">Konfirmasi</label>
-                <input type="text" id="productActionModalInput" autocomplete="off">
-                <small id="productActionModalInputHelp" class="helper-text">Ketik frasa sesuai instruksi untuk melanjutkan.</small>
-            </div>
-            <div id="productActionModalError" class="helper-text stock-empty" role="alert" hidden></div>
-            <div class="split-actions stock-edit-modal-actions">
-                <button type="submit" class="danger-button" id="productActionModalSubmit">Lanjutkan</button>
-                <button type="button" class="ghost-button" data-product-action-cancel>Batal</button>
             </div>
         </form>
     </div>
@@ -778,31 +937,6 @@
     </div>
 </div>
 {% endif %}
-
-<div class="picker-modal" id="stockBulkAdjustModal" hidden>
-    <div class="picker-modal-backdrop" data-stock-bulk-adjust-cancel></div>
-    <div class="picker-modal-panel stock-edit-modal-panel" role="dialog" aria-modal="true" aria-labelledby="stockBulkAdjustModalTitle">
-        <div class="section-title">
-            <div>
-                <h2 id="stockBulkAdjustModalTitle">Bulk Adjust Stok</h2>
-                <p id="stockBulkAdjustModalCopy">Masukkan qty penyesuaian untuk item terpilih.</p>
-            </div>
-            <button type="button" class="ghost-button" data-stock-bulk-adjust-cancel>Tutup</button>
-        </div>
-        <form id="stockBulkAdjustModalForm" class="stock-edit-detail-form">
-            <div>
-                <label for="stockBulkAdjustQtyInput">Qty Penyesuaian</label>
-                <input type="number" id="stockBulkAdjustQtyInput" step="1" inputmode="numeric" placeholder="Contoh: 5 atau -2" required>
-                <small class="helper-text">Gunakan angka minus untuk pengurangan stok.</small>
-            </div>
-            <div id="stockBulkAdjustModalError" class="helper-text stock-empty" role="alert" hidden></div>
-            <div class="split-actions stock-edit-modal-actions">
-                <button type="submit">Proses Adjust</button>
-                <button type="button" class="ghost-button" data-stock-bulk-adjust-cancel>Batal</button>
-            </div>
-        </form>
-    </div>
-</div>
 </div>
 {% endblock %}
 
@@ -813,7 +947,8 @@
     "warehouseId": warehouse_id,
     "activeWorkspace": active_workspace,
     "canManageProductMaster": can_full_manage_product_master,
-    "emptyColspan": 10 + (1 if can_bulk_adjust_ui else 0) + (1 if can_adjust_stock_ui else 0),
+    "canAdjustStock": can_adjust_stock_ui,
+    "emptyColspan": 9 + (1 if can_bulk_adjust_ui else 0),
     "summary": {
         "totalVariants": summary.total_variants,
         "totalQty": summary.total_qty,
@@ -841,6 +976,7 @@ const stockPageState = {
 };
 const STOCK_LOW_THRESHOLD = 5;
 const stockFilterForm = document.querySelector("[data-stock-filter-form]");
+const zipStockFilterForm = document.querySelector("[data-zip-stock-filter-form]");
 const stockLiveSearchInput = stockFilterForm?.querySelector("[data-stock-live-search-input]") || null;
 const stockLiveSearchStatus = document.querySelector("[data-stock-live-search-status]");
 let stockLiveSearchStatusTimer = null;
@@ -851,22 +987,24 @@ const stockAutoApplyFields = stockFilterForm
     ? Array.from(stockFilterForm.querySelectorAll('select[name], input[type="date"][name]'))
     : [];
 
+zipStockFilterForm?.querySelectorAll("select[name]").forEach((field) => {
+    field.addEventListener("change", () => {
+        if (typeof zipStockFilterForm.requestSubmit === "function") {
+            zipStockFilterForm.requestSubmit();
+            return;
+        }
+        zipStockFilterForm.submit();
+    });
+});
+
 function notifyStockMessage(message, type = "info") {
     if (typeof window.showToast === "function") {
         window.showToast(message);
         return;
     }
-    let target = document.getElementById("stockInlineMessage");
-    if (!target) {
-        target = document.createElement("div");
-        target.id = "stockInlineMessage";
-        target.className = "flash info";
-        const anchor = document.querySelector(".stock-filter-surface") || document.querySelector(".wms-page-stack") || document.body;
-        anchor.prepend(target);
+    if (type === "error") {
+        alert(message);
     }
-    target.textContent = message;
-    target.className = `flash ${type === "error" ? "error" : "success"}`;
-    target.hidden = false;
 }
 
 function formatRupiahNumber(value) {
@@ -1115,6 +1253,7 @@ function renderStockSummary() {
         attention_count: String(attentionCount),
         attention_breakdown: `${stockPageState.summary.zeroCount} kosong, ${stockPageState.summary.lowCount} menipis.`,
         ready_count: String(stockPageState.summary.readyCount),
+        low_count: String(stockPageState.summary.lowCount),
         zero_count: String(stockPageState.summary.zeroCount)
     };
 
@@ -1165,6 +1304,7 @@ function getBestPriceFromRow(row) {
     const nett = getStockCurrencyValue(row.querySelector('[data-field="price_nett"]'));
     const discount = getStockCurrencyValue(row.querySelector('[data-field="price_discount"]'));
     const retail = getStockCurrencyValue(row.querySelector('[data-field="price_retail"]'));
+    const datasetPrice = Number(row?.dataset?.bestPrice || 0);
 
     if (nett > 0) {
         return nett;
@@ -1172,7 +1312,7 @@ function getBestPriceFromRow(row) {
     if (discount > 0) {
         return discount;
     }
-    return retail;
+    return retail || datasetPrice;
 }
 
 function updateRowVisual(row, nextQty) {
@@ -1180,28 +1320,37 @@ function updateRowVisual(row, nextQty) {
     const statusBadge = row.querySelector("[data-stock-status-badge]");
     const level = getStockLevel(nextQty);
     const unitLabel = (row.dataset.productUnitLabel || "pcs").trim() || "pcs";
+    const stockStateClasses = ["red", "orange", "green", "is-danger", "is-warning", "is-safe"];
 
     row.dataset.qty = String(nextQty);
     row.classList.remove("zero", "warning");
-    qtyBadge.classList.remove("red", "orange", "green");
-    statusBadge.classList.remove("red", "orange", "green");
+    qtyBadge?.classList.remove(...stockStateClasses);
+    statusBadge?.classList.remove(...stockStateClasses);
 
-    qtyBadge.textContent = `${nextQty} ${unitLabel}`;
+    if (qtyBadge) {
+        qtyBadge.textContent = `${nextQty} ${unitLabel}`;
+    }
 
     if (level === "zero") {
         row.classList.add("zero");
-        qtyBadge.classList.add("red");
-        statusBadge.classList.add("red");
-        statusBadge.textContent = "Kosong";
+        qtyBadge?.classList.add("red");
+        statusBadge?.classList.add("red", "is-danger");
+        if (statusBadge) {
+            statusBadge.textContent = "Kosong";
+        }
     } else if (level === "low") {
         row.classList.add("warning");
-        qtyBadge.classList.add("orange");
-        statusBadge.classList.add("orange");
-        statusBadge.textContent = "Menipis";
+        qtyBadge?.classList.add("orange");
+        statusBadge?.classList.add("orange", "is-warning");
+        if (statusBadge) {
+            statusBadge.textContent = "Menipis";
+        }
     } else {
-        qtyBadge.classList.add("green");
-        statusBadge.classList.add("green");
-        statusBadge.textContent = "Aman";
+        qtyBadge?.classList.add("green");
+        statusBadge?.classList.add("green", "is-safe");
+        if (statusBadge) {
+            statusBadge.textContent = "Aman";
+        }
     }
 }
 
@@ -1335,7 +1484,7 @@ async function submitStockInlineField(input, options = {}) {
 
     if (!value) {
         if (!silent) {
-            notifyStockMessage("Field tidak boleh kosong.", "error");
+            alert("Field tidak boleh kosong.");
         }
         return { ok: false, reason: "empty" };
     }
@@ -1401,26 +1550,28 @@ async function submitStockInlineField(input, options = {}) {
     }
 }
 
-function adjustStock(button) {
-    const row = button.closest("tr");
-    const input = row.querySelector(".adjust-input");
-    const qty = parseInt(input.value, 10);
-
+function submitStockAdjustForRow(row, qty, options = {}) {
+    if (!row || !row.matches("[data-stock-row]")) {
+        notifyStockMessage("Baris stok tidak valid.", "error");
+        return Promise.resolve(false);
+    }
     if (Number.isNaN(qty) || qty === 0) {
-        notifyStockMessage("Masukkan qty adjust yang valid.", "error");
-        input?.focus();
-        return;
+        alert("Qty adjust tidak valid.");
+        return Promise.resolve(false);
     }
 
-    button.disabled = true;
+    const trigger = options.trigger || null;
+    if (trigger) {
+        trigger.disabled = true;
+    }
 
     const formData = new FormData();
-    formData.append("product_id", input.dataset.product);
-    formData.append("variant_id", input.dataset.variant);
-    formData.append("warehouse_id", input.dataset.warehouse);
+    formData.append("product_id", row.dataset.productId || "");
+    formData.append("variant_id", row.dataset.variantId || "");
+    formData.append("warehouse_id", String(stockPageConfig.warehouseId || ""));
     formData.append("qty", qty);
 
-    fetch("/stock/adjust", {
+    return fetch("/stock/adjust", {
         method: "POST",
         headers: { "X-Requested-With": "XMLHttpRequest" },
         body: formData
@@ -1430,108 +1581,98 @@ function adjustStock(button) {
         if (data.status === "success") {
             const nextQty = Number.isInteger(data.qty) ? data.qty : (parseInt(row.dataset.qty || "0", 10) + qty);
             applyAdjustedQtyToRow(row, nextQty);
-            input.value = "";
             row.querySelector(".row-check")?.removeAttribute("checked");
             row.querySelector(".row-check") && (row.querySelector(".row-check").checked = false);
             updateGroupSelectionState(getGroupSummaryRow(row));
             updateMasterCheckboxState();
             notifyStockMessage(data.message || "Stock berhasil diupdate.");
-            return;
+            return true;
         }
         if (data.status === "pending") {
-            input.value = "";
             notifyStockMessage(data.message || "Permintaan adjust stok berhasil dikirim.");
-            return;
+            return true;
         }
         notifyStockMessage(data.message || "Adjust stok gagal.", "error");
+        return false;
     })
-    .catch(() => notifyStockMessage("Terjadi error saat adjust stok.", "error"))
+    .catch(() => {
+        notifyStockMessage("Terjadi error saat adjust stok.", "error");
+        return false;
+    })
     .finally(() => {
-        button.disabled = false;
+        if (trigger) {
+            trigger.disabled = false;
+        }
     });
 }
 
-let stockBulkAdjustResolver = null;
-
-function closeStockBulkAdjustModal(payload = null) {
-    const modal = document.getElementById("stockBulkAdjustModal");
-    if (modal) {
-        modal.hidden = true;
-        syncStockModalBodyState();
-    }
-    const resolver = stockBulkAdjustResolver;
-    stockBulkAdjustResolver = null;
-    if (resolver) {
-        resolver(payload);
-    }
-}
-
-function openStockBulkAdjustModal(selectedCount) {
-    const modal = document.getElementById("stockBulkAdjustModal");
-    if (!modal) {
-        notifyStockMessage("Dialog bulk adjust belum siap. Refresh halaman lalu coba lagi.", "error");
-        return Promise.resolve(null);
-    }
-    const copy = document.getElementById("stockBulkAdjustModalCopy");
-    const input = document.getElementById("stockBulkAdjustQtyInput");
-    const errorBox = document.getElementById("stockBulkAdjustModalError");
-
-    if (copy) {
-        copy.textContent = `${selectedCount} item terpilih akan diberi qty penyesuaian yang sama.`;
-    }
-    if (input) {
-        input.value = "";
-    }
-    if (errorBox) {
-        errorBox.textContent = "";
-        errorBox.hidden = true;
-    }
-
-    modal.hidden = false;
-    syncStockModalBodyState();
-    window.requestAnimationFrame(() => input?.focus());
-
-    return new Promise((resolve) => {
-        stockBulkAdjustResolver = resolve;
-    });
-}
-
-function submitStockBulkAdjustModal() {
-    const input = document.getElementById("stockBulkAdjustQtyInput");
-    const errorBox = document.getElementById("stockBulkAdjustModalError");
+function adjustStock(button) {
+    const row = button?.closest("tr");
+    const input = row?.querySelector(".adjust-input");
     const qty = parseInt(input?.value || "", 10);
 
-    if (Number.isNaN(qty) || qty === 0) {
-        if (errorBox) {
-            errorBox.textContent = "Qty adjust tidak valid. Isi angka selain 0.";
-            errorBox.hidden = false;
+    submitStockAdjustForRow(row, qty, { trigger: button }).then((ok) => {
+        if (ok && input) {
+            input.value = "";
         }
-        input?.focus();
-        input?.select?.();
-        return;
-    }
-
-    closeStockBulkAdjustModal({ qty });
+    });
 }
 
-async function bulkAdjust() {
-    const selected = document.querySelectorAll(".row-check:checked");
-    if (selected.length === 0) {
-        notifyStockMessage("Pilih item yang ingin di-adjust terlebih dahulu.", "error");
+function promptStockQtyEdit(trigger) {
+    if (!stockPageConfig.canAdjustStock) {
         return;
     }
 
-    const adjustDetails = await openStockBulkAdjustModal(selected.length);
-    if (!adjustDetails) {
+    const row = trigger?.closest("[data-stock-row]");
+    if (!row) {
         return;
     }
-    const qty = adjustDetails.qty;
+
+    const currentQty = parseInt(row.dataset.qty || "0", 10);
+    const unitLabel = (row.dataset.productUnitLabel || "pcs").trim() || "pcs";
+    const label = row.dataset.productName || row.dataset.productSku || "item";
+    const nextValue = window.prompt(
+        `Stok baru untuk ${label}\nStok saat ini: ${currentQty} ${unitLabel}`,
+        String(currentQty)
+    );
+
+    if (nextValue === null) {
+        return;
+    }
+
+    const nextQty = parseInt(String(nextValue).trim(), 10);
+    if (Number.isNaN(nextQty)) {
+        alert("Masukkan angka stok yang valid.");
+        return;
+    }
+
+    const delta = nextQty - currentQty;
+    if (delta === 0) {
+        notifyStockMessage("Stok tidak berubah.");
+        return;
+    }
+
+    submitStockAdjustForRow(row, delta, { trigger });
+}
+
+function bulkAdjust() {
+    const selected = document.querySelectorAll(".row-check:checked");
+    if (selected.length === 0) {
+        alert("Pilih item yang ingin di-adjust terlebih dahulu.");
+        return;
+    }
+
+    const qty = prompt("Masukkan qty penyesuaian. Gunakan minus untuk pengurangan.");
+    if (!qty || Number.isNaN(parseInt(qty, 10)) || parseInt(qty, 10) === 0) {
+        alert("Qty adjust tidak valid.");
+        return;
+    }
 
     const payload = Array.from(selected).map((checkbox) => ({
         product_id: checkbox.dataset.product,
         variant_id: checkbox.dataset.variant,
         warehouse_id: String(stockPageConfig.warehouseId || ""),
-        qty
+        qty: parseInt(qty, 10)
     }));
 
     fetch("/stock/bulk-adjust", {
@@ -1548,7 +1689,7 @@ async function bulkAdjust() {
                     return;
                 }
                 const currentQty = parseInt(row.dataset.qty || "0", 10);
-                applyAdjustedQtyToRow(row, currentQty + qty);
+                applyAdjustedQtyToRow(row, currentQty + parseInt(qty, 10));
                 checkbox.checked = false;
             });
             document.querySelectorAll("[data-stock-group-summary-row]").forEach((groupSummaryRow) => {
@@ -1606,7 +1747,7 @@ const MANUAL_PRODUCT_MODE_COPY = {
     }
 };
 
-function notifyProductStudioMessage(message, type = "success") {
+function notifyProductStudioMessage(message) {
     if (!message) {
         return;
     }
@@ -1614,7 +1755,7 @@ function notifyProductStudioMessage(message, type = "success") {
         window.showToast(message);
         return;
     }
-    renderProductStudioStatus("importStatus", message, type === "error" ? "error" : "success");
+    alert(message);
 }
 
 function renderProductStudioStatus(targetId, message, category = "success") {
@@ -2100,6 +2241,15 @@ function setManualProductMode(mode, options = {}) {
         return false;
     }
 
+    if (
+        safeMode === "non_variant"
+        && currentRows.length > 1
+        && !options.skipConfirm
+        && !window.confirm("Mode non-variant hanya menyimpan satu baris. Lanjutkan dan pakai baris pertama saja?")
+    ) {
+        return false;
+    }
+
     hiddenInput.value = safeMode;
     let nextRows = Array.isArray(options.rows) && options.rows.length
         ? options.rows
@@ -2151,111 +2301,11 @@ function closeManualProductModeModal() {
 }
 
 function syncStockModalBodyState() {
-    const hasOpenModal = ["manualProductModeModal", "stockEditModal", "stockSearchReplaceModal", "ipos4ImportModal", "productActionModal", "stockBulkAdjustModal"].some((id) => {
+    const hasOpenModal = ["manualProductModeModal", "stockEditModal", "stockSearchReplaceModal", "ipos4ImportModal"].some((id) => {
         const node = document.getElementById(id);
         return Boolean(node && node.hidden === false);
     });
     document.body.classList.toggle("stock-edit-modal-open", hasOpenModal);
-}
-
-let productActionModalResolver = null;
-
-function normalizeProductActionPhrase(value) {
-    return String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
-}
-
-function closeProductActionModal(payload = null) {
-    const modal = document.getElementById("productActionModal");
-    if (modal) {
-        modal.hidden = true;
-        syncStockModalBodyState();
-    }
-    const resolver = productActionModalResolver;
-    productActionModalResolver = null;
-    if (resolver) {
-        resolver(payload);
-    }
-}
-
-function openProductActionModal(options = {}) {
-    const modal = document.getElementById("productActionModal");
-    if (!modal) {
-        notifyProductStudioMessage(options.fallbackMessage || "Dialog aksi produk belum siap. Refresh halaman lalu coba lagi.", "error");
-        return Promise.resolve(null);
-    }
-
-    const title = modal.querySelector("#productActionModalTitle");
-    const copy = modal.querySelector("#productActionModalCopy");
-    const phraseWrap = modal.querySelector("#productActionModalPhraseWrap");
-    const inputLabel = modal.querySelector("#productActionModalInputLabel");
-    const input = modal.querySelector("#productActionModalInput");
-    const inputHelp = modal.querySelector("#productActionModalInputHelp");
-    const errorBox = modal.querySelector("#productActionModalError");
-    const submitButton = modal.querySelector("#productActionModalSubmit");
-    const phrase = normalizeProductActionPhrase(options.confirmationPhrase || "");
-
-    if (title) title.textContent = options.title || "Konfirmasi Aksi Produk";
-    if (copy) copy.textContent = options.message || "Periksa aksi sebelum melanjutkan.";
-    if (inputLabel) inputLabel.textContent = options.inputLabel || "Konfirmasi";
-    if (inputHelp) {
-        inputHelp.textContent = phrase
-            ? `Ketik ${phrase} untuk melanjutkan.`
-            : "Tekan lanjutkan jika aksi sudah benar.";
-    }
-    if (input) {
-        input.value = "";
-        input.placeholder = options.inputPlaceholder || "";
-        input.required = Boolean(phrase);
-        input.dataset.confirmationPhrase = phrase;
-    }
-    if (phraseWrap) {
-        phraseWrap.hidden = !phrase;
-    }
-    if (errorBox) {
-        errorBox.textContent = "";
-        errorBox.hidden = true;
-    }
-    if (submitButton) {
-        submitButton.textContent = options.confirmLabel || "Lanjutkan";
-        submitButton.classList.toggle("danger-button", options.danger !== false);
-    }
-
-    modal.hidden = false;
-    syncStockModalBodyState();
-    window.requestAnimationFrame(() => {
-        if (phrase) {
-            input?.focus();
-        } else {
-            submitButton?.focus();
-        }
-    });
-
-    return new Promise((resolve) => {
-        productActionModalResolver = resolve;
-    });
-}
-
-function submitProductActionModal() {
-    const modal = document.getElementById("productActionModal");
-    if (!modal) {
-        return;
-    }
-    const input = modal.querySelector("#productActionModalInput");
-    const errorBox = modal.querySelector("#productActionModalError");
-    const expectedPhrase = normalizeProductActionPhrase(input?.dataset.confirmationPhrase || "");
-    const confirmationText = String(input?.value || "");
-
-    if (expectedPhrase && normalizeProductActionPhrase(confirmationText) !== expectedPhrase) {
-        if (errorBox) {
-            errorBox.textContent = "Konfirmasi tidak cocok. Aksi produk dibatalkan.";
-            errorBox.hidden = false;
-        }
-        input?.focus();
-        input?.select?.();
-        return;
-    }
-
-    closeProductActionModal({ confirmationText });
 }
 
 function requestManualProductForm() {
@@ -3065,22 +3115,21 @@ async function undoLatestIpos4Import() {
         ? latestIpos4UndoImport
         : await loadLatestIpos4UndoImport();
     if (!latestImport || !latestImport.undo_available) {
-        renderProductStudioStatus("ipos4ImportStatus", "Belum ada import iPOS4 terakhir yang bisa di-undo dari halaman ini.", "error");
+        alert("Belum ada import iPOS4 terakhir yang bisa di-undo dari halaman ini.");
         return;
     }
 
-    const confirmation = await openProductActionModal({
-        title: "Undo Import iPOS4",
-        message: `Database akan dikembalikan ke kondisi sebelum import ${latestImport.source_dump_name || "iPOS4 terakhir"} pada ${latestImport.finished_at || "-"}. Semua perubahan setelah import tersebut ikut hilang.`,
-        confirmationPhrase: IPOS4_IMPORT_UNDO_CONFIRMATION,
-        inputLabel: "Ketik frasa undo",
-        confirmLabel: "Jalankan Undo",
-        danger: true,
-    });
-    if (!confirmation) {
+    const confirmationText = window.prompt(
+        `Undo akan mengembalikan database ke kondisi sebelum import ${latestImport.source_dump_name || "iPOS4 terakhir"} pada ${latestImport.finished_at || "-"}. Semua perubahan setelah import itu ikut hilang. Ketik ${IPOS4_IMPORT_UNDO_CONFIRMATION} untuk melanjutkan.`
+    );
+    if (confirmationText === null) {
         return;
     }
-    const confirmationText = confirmation.confirmationText || IPOS4_IMPORT_UNDO_CONFIRMATION;
+
+    if (String(confirmationText || "").trim().toUpperCase().replace(/\s+/g, " ") !== IPOS4_IMPORT_UNDO_CONFIRMATION) {
+        alert("Konfirmasi undo tidak cocok. Database tidak jadi dipulihkan.");
+        return;
+    }
 
     renderProductStudioStatus("ipos4ImportStatus", "Undo import iPOS4 sedang dijalankan. Mohon tunggu sampai selesai.", "success");
     setIpos4ImportBusy(true);
@@ -3115,11 +3164,9 @@ async function undoLatestIpos4Import() {
 
         renderProductStudioStatus("ipos4ImportStatus", data.message || "Undo import iPOS4 selesai.", "success");
         notifyProductStudioMessage(data.message || "Undo import iPOS4 selesai.");
-        try {
-            await refreshProductsView();
-        } catch (refreshError) {
-            renderProductStudioStatus("ipos4ImportStatus", "Undo selesai, tapi panel stok perlu dimuat ulang manual.", "success");
-        }
+        window.setTimeout(() => {
+            window.location.reload();
+        }, 450);
     } catch (error) {
         renderProductStudioStatus("ipos4ImportStatus", "Terjadi error saat menjalankan undo import iPOS4.", "error");
     } finally {
@@ -3222,20 +3269,14 @@ async function submitIpos4Import(event) {
     }
 }
 
-async function bulkDelete() {
+function bulkDelete() {
     const ids = Array.from(document.querySelectorAll(".product-row-check:checked")).map((checkbox) => checkbox.value);
     if (!ids.length) {
-        renderProductStudioStatus("importStatus", "Pilih produk yang ingin dihapus terlebih dahulu.", "error");
+        alert("Pilih produk yang ingin dihapus terlebih dahulu.");
         return;
     }
 
-    const confirmation = await openProductActionModal({
-        title: "Hapus Produk Terpilih",
-        message: `${ids.length} produk akan dihapus atau masuk approval sesuai role akun. Pastikan pilihan sudah benar.`,
-        confirmLabel: "Hapus Terpilih",
-        danger: true,
-    });
-    if (!confirmation) {
+    if (!confirm("Yakin ingin menghapus produk yang dipilih?")) {
         return;
     }
 
@@ -3264,25 +3305,19 @@ async function bulkDelete() {
         const fallbackMessage = rawText
             ? rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)
             : "";
-        renderProductStudioStatus("importStatus", data.message || fallbackMessage || "Gagal menghapus produk.", "error");
+        alert(data.message || fallbackMessage || "Gagal menghapus produk.");
     })
-    .catch(() => renderProductStudioStatus("importStatus", "Terjadi error saat menghapus data.", "error"));
+    .catch(() => alert("Terjadi error saat menghapus data."));
 }
 
-async function deleteSingleProduct(productId) {
+function deleteSingleProduct(productId) {
     const normalizedId = Number(productId || 0);
     if (!normalizedId) {
-        renderProductStudioStatus("importStatus", "Produk yang ingin dihapus tidak valid.", "error");
+        alert("Produk yang ingin dihapus tidak valid.");
         return;
     }
 
-    const confirmation = await openProductActionModal({
-        title: "Hapus Produk",
-        message: "Produk ini akan dihapus atau masuk approval sesuai role akun. Pastikan produk yang dipilih sudah benar.",
-        confirmLabel: "Hapus Produk",
-        danger: true,
-    });
-    if (!confirmation) {
+    if (!confirm("Hapus produk ini?")) {
         return;
     }
 
@@ -3311,24 +3346,25 @@ async function deleteSingleProduct(productId) {
         const fallbackMessage = rawText
             ? rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)
             : "";
-        renderProductStudioStatus("importStatus", data.message || fallbackMessage || "Gagal menghapus produk.", "error");
+        alert(data.message || fallbackMessage || "Gagal menghapus produk.");
     })
-    .catch(() => renderProductStudioStatus("importStatus", "Terjadi error saat menghapus produk.", "error"));
+    .catch(() => alert("Terjadi error saat menghapus produk."));
 }
 
-async function deleteAllProducts() {
-    const confirmation = await openProductActionModal({
-        title: "Hapus Semua Produk",
-        message: "Seluruh master produk beserta stok dan variannya akan diproses. Untuk akun admin, aksi ini hanya mengirim approval ke leader / super admin.",
-        confirmationPhrase: "HAPUS SEMUA PRODUK",
-        inputLabel: "Ketik frasa hapus semua",
-        confirmLabel: "Proses Hapus Semua",
-        danger: true,
-    });
-    if (!confirmation) {
+function deleteAllProducts() {
+    const confirmationText = window.prompt(
+        "Fitur ini akan menghapus seluruh master produk beserta stok dan variannya. Beberapa histori atau laporan yang masih terhubung ke master produk bisa ikut terdampak. Untuk akun admin, aksi ini hanya mengirim approval ke leader / super admin. Ketik HAPUS SEMUA PRODUK untuk melanjutkan."
+    );
+
+    if (confirmationText === null) {
         return;
     }
-    const confirmationText = confirmation.confirmationText || "HAPUS SEMUA PRODUK";
+
+    const normalizedConfirmation = String(confirmationText || "").trim().toUpperCase().replace(/\s+/g, " ");
+    if (normalizedConfirmation !== "HAPUS SEMUA PRODUK") {
+        alert("Konfirmasi tidak cocok. Penghapusan semua produk dibatalkan.");
+        return;
+    }
 
     fetch("/products/delete-all", {
         method: "POST",
@@ -3349,7 +3385,7 @@ async function deleteAllProducts() {
 
         if (res.ok && data.status === "success") {
             if (data.approval_status === "pending") {
-                notifyProductStudioMessage(data.message || "Permintaan hapus produk sudah dikirim. Produk belum hilang karena masih menunggu approval leader / super admin.");
+                alert(data.message || "Permintaan hapus produk sudah dikirim. Produk belum hilang karena masih menunggu approval leader / super admin.");
             } else {
                 notifyProductStudioMessage(data.message || "Semua produk berhasil diproses untuk dihapus.");
             }
@@ -3359,9 +3395,9 @@ async function deleteAllProducts() {
         const fallbackMessage = rawText
             ? rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220)
             : "";
-        renderProductStudioStatus("importStatus", data.message || fallbackMessage || "Gagal menghapus semua produk.", "error");
+        alert(data.message || fallbackMessage || "Gagal menghapus semua produk.");
     })
-    .catch(() => renderProductStudioStatus("importStatus", "Terjadi error saat menghapus semua produk.", "error"));
+    .catch(() => alert("Terjadi error saat menghapus semua produk."));
 }
 
 function buildPreviewTable(rows) {
@@ -3370,9 +3406,9 @@ function buildPreviewTable(rows) {
     }
 
     const headers = Object.keys(rows[0]);
-    const head = headers.map((header) => "<th>" + escapeManualProductHtml(header) + "</th>").join("");
+    const head = headers.map((header) => "<th>" + header + "</th>").join("");
     const body = rows.map((row) => {
-        return "<tr>" + headers.map((header) => "<td>" + escapeManualProductHtml(row[header]) + "</td>").join("") + "</tr>";
+        return "<tr>" + headers.map((header) => "<td>" + (row[header] ?? "") + "</td>").join("") + "</tr>";
     }).join("");
 
     return "<div class='table-box' style='margin-top:16px; margin-bottom:0;'><table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table></div>";
@@ -3384,7 +3420,7 @@ async function previewImport() {
     const file = fileInput?.files?.[0];
 
     if (!file || !previewBox) {
-        renderProductStudioStatus("importStatus", "Pilih file import terlebih dahulu.", "error");
+        alert("Pilih file import terlebih dahulu.");
         return;
     }
 
@@ -3401,7 +3437,7 @@ async function previewImport() {
         const data = await res.json();
 
         if (!res.ok || data.status === "error" || data.error) {
-            previewBox.innerHTML = "<div class='flash error'>" + escapeManualProductHtml(data.message || data.error || "Gagal membuat preview.") + "</div>";
+            previewBox.innerHTML = "<div class='flash error'>" + (data.message || data.error || "Gagal membuat preview.") + "</div>";
             return;
         }
 
@@ -3514,42 +3550,14 @@ document.querySelectorAll("[data-ipos4-import-open]").forEach((node) => {
 document.querySelectorAll("[data-ipos4-import-close]").forEach((node) => {
     node.addEventListener("click", closeIpos4ImportModal);
 });
-document.querySelectorAll("[data-product-action-cancel]").forEach((node) => {
-    node.addEventListener("click", () => closeProductActionModal(null));
-});
-document.getElementById("productActionModalForm")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    submitProductActionModal();
-});
-document.querySelectorAll("[data-stock-bulk-adjust-cancel]").forEach((node) => {
-    node.addEventListener("click", () => closeStockBulkAdjustModal(null));
-});
-document.getElementById("stockBulkAdjustModalForm")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    submitStockBulkAdjustModal();
-});
 document.getElementById("ipos4ImportForm")?.addEventListener("submit", submitIpos4Import);
 document.getElementById("ipos4ImportMode")?.addEventListener("change", updateIpos4ImportModeHint);
 updateIpos4ImportModeHint();
 document.querySelectorAll("[data-manual-product-mode-option]").forEach((button) => {
-    button.addEventListener("click", async () => {
-        const nextMode = button.dataset.manualProductModeOption;
-        const currentRows = getVariantPayload();
-        if (nextMode === "non_variant" && currentRows.length > 1) {
-            const confirmation = await openProductActionModal({
-                title: "Ubah ke Non-Variant",
-                message: "Mode non-variant hanya menyimpan satu baris stok. Sistem akan memakai baris pertama dan mengabaikan baris variasi lain.",
-                confirmLabel: "Pakai Baris Pertama",
-                danger: false,
-            });
-            if (!confirmation) {
-                return;
-            }
-        }
-        const applied = setManualProductMode(nextMode, {
+    button.addEventListener("click", () => {
+        const applied = setManualProductMode(button.dataset.manualProductModeOption, {
             preserveExisting: true,
-            openForm: true,
-            skipConfirm: true
+            openForm: true
         });
         if (applied) {
             closeManualProductModeModal();
@@ -3563,15 +3571,18 @@ document.addEventListener("keydown", (event) => {
     }
     if (event.key === "Escape" && !document.getElementById("ipos4ImportModal")?.hidden) {
         closeIpos4ImportModal();
+    }
+});
+
+document.addEventListener("contextmenu", (event) => {
+    const qtyEditTrigger = event.target.closest("[data-stock-qty-edit-trigger]");
+    if (!qtyEditTrigger) {
         return;
     }
-    if (event.key === "Escape" && !document.getElementById("productActionModal")?.hidden) {
-        closeProductActionModal(null);
-        return;
-    }
-    if (event.key === "Escape" && !document.getElementById("stockBulkAdjustModal")?.hidden) {
-        closeStockBulkAdjustModal(null);
-    }
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    promptStockQtyEdit(qtyEditTrigger);
 });
 
 const variantRowsBody = document.getElementById("variantRowsBody");
@@ -3915,6 +3926,28 @@ if (stockPageConfig.canManageProductMaster) {
     window.addEventListener("scroll", closeStockContextMenu, true);
     window.addEventListener("resize", closeStockContextMenu);
 
+    function buildProductStudioRoute(source) {
+        const targetUrl = new URL("/wms/input-item", window.location.origin);
+        const currentParams = new URLSearchParams(window.location.search);
+        ["warehouse", "q", "sort", "stock_state", "start_date", "end_date"].forEach((key) => {
+            const value = currentParams.get(key);
+            if (value) {
+                targetUrl.searchParams.set(key, value);
+            }
+        });
+
+        if (!targetUrl.searchParams.get("warehouse") && stockPageConfig.warehouseId) {
+            targetUrl.searchParams.set("warehouse", String(stockPageConfig.warehouseId));
+        }
+
+        const productSearch = source?.dataset.productSku || source?.dataset.productName || "";
+        if (productSearch) {
+            targetUrl.searchParams.set("product_search", productSearch);
+        }
+
+        return `${targetUrl.pathname}${targetUrl.search}`;
+    }
+
     stockContextMenu?.addEventListener("click", (event) => {
         const button = event.target.closest("[data-stock-context-action]");
         if (!button) {
@@ -3925,7 +3958,7 @@ if (stockPageConfig.canManageProductMaster) {
         closeStockContextMenu();
 
         if (action === "studio") {
-            document.getElementById("productStudioPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            window.location.assign(buildProductStudioRoute(activeContextSource));
             return;
         }
 
@@ -3942,7 +3975,7 @@ if (stockPageConfig.canManageProductMaster) {
 
         event.preventDefault();
         event.stopPropagation();
-        const source = trigger.closest("[data-stock-group-summary-row]");
+        const source = trigger.closest("[data-stock-group-summary-row], [data-stock-row]");
         if (source) {
             openStockEditModal(source);
         }

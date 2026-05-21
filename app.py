@@ -77,6 +77,7 @@ from services.hris_catalog import (
 
 SESSION_TIMEOUT = int(getattr(Config, "PERMANENT_SESSION_LIFETIME").total_seconds())
 NON_WMS_HOMEBASE_EXCLUDED_PREFIXES = (
+    "/dashboard",
     "/stock",
     "/products",
     "/inbound",
@@ -95,6 +96,8 @@ ROLE_HOME_ENDPOINTS = {
 RESTRICTED_ROLE_ENDPOINT_RULES = {
     "intern": (
         "dashboard.workspace_gateway",
+        "dashboard.internal_module_hub",
+        "dashboard.information_module",
         "announcement_center.",
         "attendance_portal.",
         "leave_portal.",
@@ -107,6 +110,8 @@ RESTRICTED_ROLE_ENDPOINT_RULES = {
     ),
     "staff_intern": (
         "dashboard.workspace_gateway",
+        "dashboard.internal_module_hub",
+        "dashboard.information_module",
         "announcement_center.",
         "attendance_portal.",
         "leave_portal.",
@@ -1202,6 +1207,8 @@ def create_app():
         asset_filenames = [
             "manifest.webmanifest",
             "css/dashboard.css",
+            "css/internal_portal_zip.css",
+            "assets/internal_portal/header-center-logo.svg",
             "brand/mataram-logo.png",
             "brand/mataram-logo-192.png",
             "brand/mataram-logo-512.png",

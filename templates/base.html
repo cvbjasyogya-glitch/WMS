@@ -13,7 +13,8 @@
 {% set brand_logo_url = asset_url('brand/mataram-logo.png') %}
 {% set brand_logo_192_url = asset_url('brand/mataram-logo-192.png') %}
 {% set manifest_url = asset_url('manifest.webmanifest') %}
-{% set dashboard_css_url = asset_url('css/dashboard.css') %}
+{% set dashboard_css_url = asset_url('css/dashboard.css') ~ '?v=' ~ (app_version|default('20260520', true)) %}
+{% set internal_portal_css_url = asset_url('css/internal_portal_zip.css') ~ '?v=' ~ (app_version|default('20260520', true)) %}
 {% set app_shell_js_url = asset_url('js/app_shell.js') %}
 {% set push_notifications_js_url = asset_url('js/push_notifications.js') %}
 {% set web_notifications_js_url = asset_url('js/web_notifications.js') %}
@@ -38,6 +39,7 @@
 <script>
 (() => {
     const root = document.documentElement;
+    root.classList.add("page-motion-enabled");
     const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
     const effectiveType = String((connection && connection.effectiveType) || "").trim().toLowerCase();
     const saveData = Boolean(connection && connection.saveData);
@@ -63,12 +65,10 @@
     const idleTimeoutFactor = lowEndDevice ? 1.9 : (balancedDevice ? 1.25 : 1);
     const connectionTier = saveData ? "save-data" : (effectiveType || "default");
 
+    root.dataset.theme = "light";
     try {
-        const storedTheme = localStorage.getItem("wms-theme");
-        const theme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : "dark";
-        root.dataset.theme = theme;
+        localStorage.removeItem("wms-theme");
     } catch (error) {
-        root.dataset.theme = "dark";
     }
 
     try {
@@ -88,21 +88,7 @@
     }
 
     try {
-        const initialViewportCandidates = [
-            window.innerWidth,
-            document.documentElement ? document.documentElement.clientWidth : 0,
-            window.visualViewport ? window.visualViewport.width : 0,
-        ]
-            .map((value) => Number(value))
-            .filter((value) => Number.isFinite(value) && value > 0);
-        const initialViewportWidth = initialViewportCandidates.length
-            ? Math.min(...initialViewportCandidates)
-            : window.innerWidth;
-        const isCoarseTouch = Boolean(
-            window.matchMedia
-            && window.matchMedia("(hover: none) and (pointer: coarse)").matches
-        );
-        const shouldMinimizeSidebar = !isCoarseTouch && initialViewportWidth > 1080 && localStorage.getItem("wms-sidebar-minimized") === "1";
+        const shouldMinimizeSidebar = window.innerWidth > 1080 && localStorage.getItem("wms-sidebar-minimized") === "1";
         root.classList.toggle("sidebar-minimized-pending", shouldMinimizeSidebar);
     } catch (error) {
         root.classList.remove("sidebar-minimized-pending");
@@ -147,10 +133,30 @@
 })();
 </script>
 <link rel="stylesheet" href="{{ dashboard_css_url }}">
+{% set head_has_app_shell = session.get("user_id") %}
+{% set head_use_internal_clean_shell = head_has_app_shell and not request.path.startswith('/workspace') and not request.path.startswith('/modul') and not request.path.startswith('/hris') and not request.path.startswith('/informasi') and not request.path.startswith('/kasir') %}
+<script id="wmsClockConfigData" type="application/json">
+{{ {
+    "displayTimeZone": app_display_time_zone,
+    "serverEpochMs": app_server_time_epoch_ms
+}|tojson }}
+</script>
 <script>
-window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
+window.wmsReadJsonScript = window.wmsReadJsonScript || function (id) {
+    const node = document.getElementById(id);
+    if (!node) {
+        return {};
+    }
+    try {
+        return JSON.parse(node.textContent || "{}");
+    } catch (error) {
+        return {};
+    }
+};
+const wmsClockConfig = window.wmsReadJsonScript("wmsClockConfigData");
+window.wmsDisplayTimeZone = wmsClockConfig.displayTimeZone || "Asia/Jakarta";
 (() => {
-    const serverEpochMs = Number({{ app_server_time_epoch_ms|tojson }});
+    const serverEpochMs = Number(wmsClockConfig.serverEpochMs || 0);
     const renderedPerfMs = (window.performance && typeof window.performance.now === "function")
         ? window.performance.now()
         : Date.now();
@@ -167,18 +173,45 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
     };
 })();
 </script>
+{% if head_use_internal_clean_shell %}
+<link rel="stylesheet" href="{{ internal_portal_css_url }}">
+{% endif %}
 {% block extra_head %}{% endblock %}
 </head>
 {% set has_app_shell = session.get("user_id") %}
-<body class="{% if has_app_shell %}has-floating-toolbelt {% endif %}{% if not has_app_shell %}minimal-shell {% endif %}browser-mode" data-has-app-shell="{{ '1' if has_app_shell else '0' }}" data-device-mode="desktop" data-app-mode="browser" data-app-surface="desktop" data-install-context="browser" data-floating-toolbelt-mode="{% block floating_toolbelt_mode %}grouped{% endblock %}" data-ui-homebase="{{ '1' if use_homebase_ui else '0' }}">
+{% set use_zip_route_shell = has_app_shell and (request.path.startswith('/workspace') or request.path.startswith('/modul') or request.path.startswith('/hris') or request.path.startswith('/informasi')) %}
+{% set use_internal_clean_shell = has_app_shell and not use_zip_route_shell and not request.path.startswith('/kasir') %}
+{% set show_legacy_app_shell = has_app_shell and not use_zip_route_shell and not use_internal_clean_shell %}
+{% set show_legacy_sidebar = show_legacy_app_shell and not request.path.startswith('/kasir') %}
+{% set is_wms_refactor_shell = use_internal_clean_shell and (
+    request.path.startswith('/dashboard')
+    or request.path.startswith('/stock')
+    or request.path.startswith('/products')
+    or request.path.startswith('/request')
+    or request.path.startswith('/transfers')
+    or request.path.startswith('/inbound')
+    or request.path.startswith('/outbound')
+    or request.path.startswith('/so')
+    or request.path.startswith('/audit')
+) %}
+<body class="{% if show_legacy_app_shell %}has-floating-toolbelt {% endif %}{% if not has_app_shell %}minimal-shell {% endif %}browser-mode {% if use_internal_clean_shell %}internal-clean-page-shell {% endif %}{% if is_wms_refactor_shell %}wms-refactor-shell {% endif %}{% block body_class %}{% endblock %}" data-has-app-shell="{{ '1' if has_app_shell else '0' }}" data-device-mode="desktop" data-app-mode="browser" data-app-surface="desktop" data-install-context="browser" {% if show_legacy_app_shell %}data-floating-toolbelt-mode="{% block floating_toolbelt_mode %}grouped{% endblock %}"{% endif %} data-ui-homebase="{{ '1' if use_homebase_ui else '0' }}">
+<div class="page-motion-curtain" data-page-motion-curtain aria-hidden="true">
+    <div class="page-motion-panel">
+        <span class="page-motion-orb"></span>
+        <img class="page-motion-logo" src="{{ asset_url('assets/internal_portal/header-center-logo.svg') }}" alt="">
+        <span class="page-motion-line"></span>
+    </div>
+</div>
 <a href="#mainContent" class="skip-link">Lewati ke konten utama</a>
 
-{% if has_app_shell %}
+{% if show_legacy_app_shell %}
 {% set mobile_role_label = session.get("role", "guest")|replace("_", " ")|upper %}
 {% set mobile_warehouse_label = "WH " ~ session.get("warehouse_id", "-") %}
 <div class="mobile-nav">
     <div class="mobile-nav-leading">
+        {% if show_legacy_sidebar %}
         <button type="button" id="mobileMenuButton" class="ghost-button mobile-menu-button" onclick="toggleMenu()" aria-controls="menu" aria-expanded="false">Menu</button>
+        {% endif %}
         <div class="mobile-brand">
             <div class="mobile-brand-mark">
                 <img src="{{ brand_logo_url }}" alt="ERP-CV.BJAS logo">
@@ -206,21 +239,143 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
             <span class="shell-break-chip-hint" data-shell-break-hint>{{ shell_break_timer.hint_label }}</span>
         </span>
         {% endif %}
-        <button type="button" class="ghost-button mobile-theme-toggle" data-theme-toggle aria-label="Ganti mode tampilan">
-            <span data-theme-toggle-label>Mode Cerah</span>
-        </button>
         <button type="button" class="ghost-button mobile-install-button" data-pwa-install-trigger hidden aria-label="Pasang aplikasi ERP ke perangkat">
             <span data-pwa-install-label>Install App</span>
         </button>
     </div>
 </div>
 
+{% if show_legacy_sidebar %}
 <div class="mobile-sidebar-backdrop" id="menuBackdrop" onclick="closeMenu()"></div>
 {% endif %}
+{% endif %}
 
-<div class="layout {% if not has_app_shell %}layout-plain{% endif %}">
+{% if use_internal_clean_shell %}
+<header class="internal-app-topbar module-header" aria-label="Navigasi modul internal">
+    <a class="brand internal-topbar-left" href="/workspace/" aria-label="Kembali ke CV BJAS Internal Portal">
+        <span class="brand-logo is-fallback internal-brand-pill" aria-hidden="true">
+            <span class="brand-fallback">CV BJAS</span>
+        </span>
+        <span class="brand-divider internal-topbar-separator" aria-hidden="true"></span>
+        <span class="brand-logo brand-logo-wide is-fallback internal-brand-pill" aria-hidden="true">
+            <span class="brand-fallback">Mataram Sports</span>
+        </span>
+    </a>
+    <a href="/workspace/" class="header-center-logo internal-topbar-logo" aria-label="Pusat aplikasi CV BJAS">
+        <img src="{{ asset_url('assets/internal_portal/header-center-logo.svg') }}" alt="CV Berkah Jaya Abadi Sports">
+    </a>
+    {% include "partials/internal_topbar_actions.html" %}
+</header>
+{% endif %}
 
-{% if has_app_shell %}
+{% if use_internal_clean_shell %}
+{% set clean_path = request.path %}
+{% set clean_subpage_label = "" %}
+{% if clean_path.startswith('/absen') or clean_path.startswith('/schedule') or clean_path.startswith('/lembur') or clean_path.startswith('/laporan-harian') or clean_path.startswith('/kpi-staff') %}
+    {% set clean_module_label = "BJAS Attendance" %}
+    {% set clean_module_links = [
+        {"label": "Beranda", "href": "/modul/attendance/", "icon": asset_url('icons/workspace/hris-home.svg'), "active": false, "note": ""},
+        {"label": "Jadwal Kerja", "href": "/schedule/", "icon": asset_url('icons/workspace/coordination-jadwal.svg'), "active": clean_path.startswith('/schedule'), "note": ""},
+        {"label": "Absen Foto", "href": "/absen/", "icon": asset_url('icons/workspace/coordination-absen-foto.svg'), "active": clean_path.startswith('/absen'), "note": ""},
+        {"label": "Report", "href": "/laporan-harian/", "icon": asset_url('icons/workspace/coordination-report-harian.svg'), "active": clean_path.startswith('/laporan-harian'), "note": ""},
+        {"label": "Late & Overtime", "href": "/lembur/", "icon": asset_url('icons/workspace/coordination-absen-foto.svg'), "active": clean_path.startswith('/lembur'), "note": ""},
+        {"label": "KPI Staff", "href": "/kpi-staff/", "icon": asset_url('icons/workspace/hris-performance.svg'), "active": clean_path.startswith('/kpi-staff'), "note": "Target"}
+    ] %}
+{% elif clean_path.startswith('/crm') %}
+    {% set clean_module_label = "BJAS CRM" %}
+    {% set clean_module_links = [
+        {"label": "Beranda", "href": "/modul/crm/", "icon": asset_url('icons/workspace/hris-home.svg'), "active": false, "note": ""},
+        {"label": "Customer Data", "href": "/crm/", "icon": asset_url('icons/workspace/coordination-crm.svg'), "active": clean_path.startswith('/crm'), "note": ""},
+        {"label": "Member Senaran", "href": "/crm/#membership", "icon": asset_url('icons/workspace/hris-employee.svg'), "active": false, "note": ""},
+        {"label": "Customer History", "href": "/crm/#history", "icon": asset_url('icons/workspace/hris-report.svg'), "active": false, "note": ""},
+        {"label": "Campaign", "href": "/crm/#campaign", "icon": asset_url('icons/workspace/hris-announcement.svg'), "active": false, "note": ""}
+    ] %}
+{% elif clean_path.startswith('/announcements') or clean_path.startswith('/notifications') or clean_path.startswith('/chat') %}
+    {% set clean_module_label = "BJAS Informasi" %}
+    {% set clean_module_links = [
+        {"label": "Beranda", "href": "/informasi/", "icon": asset_url('icons/workspace/hris-home.svg'), "active": false, "note": ""},
+        {"label": "BJAS News", "href": "/announcements/", "icon": asset_url('icons/workspace/hris-announcement.svg'), "active": clean_path.startswith('/announcements'), "note": ""},
+        {"label": "Memo Internal", "href": "/chat/", "icon": asset_url('icons/workspace/hris-documents.svg'), "active": clean_path.startswith('/chat'), "note": ""},
+        {"label": "SOP and Policy", "href": "/informasi/", "icon": asset_url('icons/workspace/hris-documents.svg'), "active": false, "note": ""},
+        {"label": "Knowledge Base", "href": "/informasi/", "icon": asset_url('icons/workspace/hris-report.svg'), "active": false, "note": "Panduan kerja"},
+        {"label": "Announcement", "href": "/announcements/", "icon": asset_url('icons/workspace/hris-announcement.svg'), "active": false, "note": ""}
+    ] %}
+{% elif clean_path.startswith('/libur') or clean_path.startswith('/approvals') %}
+    {% set clean_module_label = "BJAS Permission" %}
+    {% set clean_module_links = [
+        {"label": "Beranda", "href": "/modul/permission/", "icon": asset_url('icons/workspace/hris-home.svg'), "active": false, "note": ""},
+        {"label": "Request Permission", "href": "/libur/", "icon": asset_url('icons/workspace/hris-leave.svg'), "active": clean_path.startswith('/libur'), "note": ""},
+        {"label": "Libur / Cuti", "href": "/libur/", "icon": asset_url('icons/workspace/coordination-libur.svg'), "active": false, "note": ""},
+        {"label": "Izin Sakit", "href": "/libur/", "icon": asset_url('icons/workspace/hris-leave.svg'), "active": false, "note": ""},
+        {"label": "Approval Manager", "href": "/approvals/", "icon": asset_url('icons/workspace/wms-approvals.svg'), "active": clean_path.startswith('/approvals'), "note": ""},
+        {"label": "Log", "href": "/libur/#history", "icon": asset_url('icons/workspace/wms-audit-log.svg'), "active": false, "note": ""}
+    ] %}
+{% elif clean_path.startswith('/admin') or clean_path.startswith('/account') %}
+    {% set clean_module_label = "BJAS Setting" %}
+    {% set clean_module_links = [
+        {"label": "Beranda", "href": "/modul/setting/", "icon": asset_url('icons/workspace/hris-home.svg'), "active": false, "note": ""},
+        {"label": "Admin Center ERP", "href": "/admin/", "icon": asset_url('icons/workspace/utility-account-settings.svg'), "active": clean_path in ['/admin', '/admin/'], "note": ""},
+        {"label": "Role Access", "href": "/admin/permissions", "icon": asset_url('icons/workspace/wms-approvals.svg'), "active": clean_path.startswith('/admin/permissions'), "note": ""},
+        {"label": "Branch/Homebase", "href": "/admin/warehouses", "icon": asset_url('icons/workspace/wms-stok-produk.svg'), "active": clean_path.startswith('/admin/warehouses'), "note": ""},
+        {"label": "Notification", "href": "/admin/notifications", "icon": asset_url('icons/workspace/hris-announcement.svg'), "active": clean_path.startswith('/admin/notifications'), "note": ""},
+        {"label": "Account Setting", "href": "/account/settings", "icon": asset_url('icons/workspace/utility-account-settings.svg'), "active": clean_path.startswith('/account'), "note": ""},
+        {"label": "Audit Log", "href": "/audit/", "icon": asset_url('icons/workspace/wms-audit-log.svg'), "active": false, "note": ""}
+    ] %}
+{% elif clean_path.startswith('/sms') %}
+    {% set clean_module_label = "BJAS Drive" %}
+    {% set clean_module_links = [
+        {"label": "Beranda", "href": "https://mataramsport.space", "icon": asset_url('icons/workspace/hris-home.svg'), "active": false, "note": ""},
+        {"label": "Dokumen", "href": "/sms/", "icon": asset_url('icons/workspace/hris-documents.svg'), "active": clean_path.startswith('/sms'), "note": ""},
+        {"label": "Company File", "href": "/sms/", "icon": asset_url('icons/workspace/hris-report.svg'), "active": false, "note": ""},
+        {"label": "Shared File", "href": "/sms/", "icon": asset_url('icons/workspace/hris-documents.svg'), "active": false, "note": ""}
+    ] %}
+{% elif clean_path.startswith('/stock') or clean_path.startswith('/products') %}
+    {% set clean_module_label = "BJAS WMS" %}
+    {% if request.args.get('workspace') == 'products' %}
+        {% set clean_subpage_label = "Ubah Item" %}
+    {% endif %}
+    {% set clean_module_links = [
+        {"label": "Inventori", "href": "/wms/stock-produk", "icon": asset_url('icons/workspace/wms-stok-produk.svg'), "active": clean_path.startswith('/stock') and request.args.get('workspace') != 'products', "note": ""},
+        {"label": "Input Item", "href": "/wms/input-item", "icon": asset_url('icons/workspace/utility-generic.svg'), "active": request.args.get('workspace') == 'products', "note": ""},
+        {"label": "Transfer", "href": "/wms/transfers", "icon": asset_url('icons/workspace/wms-transfer.svg'), "active": false, "note": ""},
+        {"label": "Stock Opname", "href": "/wms/stock-opname", "icon": asset_url('icons/workspace/wms-stock-opname.svg'), "active": false, "note": ""}
+    ] %}
+{% else %}
+    {% set clean_module_label = "BJAS WMS" %}
+    {% set clean_module_links = [
+        {"label": "Dashboard", "href": "/wms/dashboard", "icon": asset_url('icons/workspace/wms-dashboard.svg'), "active": clean_path.startswith('/dashboard') or clean_path in ['/wms', '/wms/', '/wms/dashboard'], "note": ""},
+        {"label": "Barcode/Stiker", "href": "/wms/barcode-stiker", "icon": asset_url('icons/workspace/utility-generic.svg'), "active": clean_path.startswith('/stock/barcode') or clean_path.startswith('/wms/barcode-stiker'), "note": ""},
+        {"label": "Request Owner", "href": "/wms/request-owner", "icon": asset_url('icons/workspace/wms-request-owner.svg'), "active": clean_path.startswith('/request/owner') or clean_path.startswith('/wms/request-owner'), "note": ""},
+        {"label": "Request Gudang", "href": "/wms/request-gudang", "icon": asset_url('icons/workspace/wms-request-gudang.svg'), "active": (clean_path in ['/request', '/request/']) or clean_path.startswith('/wms/request-gudang'), "note": ""},
+        {"label": "Stock Opname", "href": "/wms/stock-opname", "icon": asset_url('icons/workspace/wms-stock-opname.svg'), "active": clean_path.startswith('/so') or clean_path.startswith('/wms/stock-opname'), "note": ""},
+        {"label": "Transfers", "href": "/wms/transfers", "icon": asset_url('icons/workspace/wms-transfer.svg'), "active": clean_path.startswith('/transfers') or clean_path.startswith('/wms/transfers'), "note": ""},
+        {"label": "Outbound", "href": "/wms/outbound", "icon": asset_url('icons/workspace/wms-outbound.svg'), "active": clean_path.startswith('/outbound') or clean_path.startswith('/wms/outbound'), "note": ""},
+        {"label": "Inbound", "href": "/wms/inbound", "icon": asset_url('icons/workspace/wms-inbound.svg'), "active": clean_path.startswith('/inbound') or clean_path.startswith('/wms/inbound'), "note": ""},
+        {"label": "Stock & Produk", "href": "/wms/stock-produk", "icon": asset_url('icons/workspace/wms-stok-produk.svg'), "active": (clean_path.startswith('/stock') and not clean_path.startswith('/stock/barcode')) or clean_path.startswith('/products') or clean_path.startswith('/wms/stock-produk'), "note": ""},
+        {"label": "Audit Operasional", "href": "/wms/audit-operasional", "icon": asset_url('icons/workspace/wms-audit-log.svg'), "active": clean_path.startswith('/audit') or clean_path.startswith('/wms/audit-operasional'), "note": ""}
+    ] %}
+{% endif %}
+<nav class="internal-breadcrumb breadcrumb-bar clean-breadcrumb-bar" aria-label="Breadcrumb">
+    <ol class="breadcrumb-list">
+        <li><a href="/workspace/">Beranda</a></li>
+        {% if clean_subpage_label %}
+        <li><a href="/wms/stock-produk">{{ clean_module_label }}</a></li>
+        <li aria-current="page">{{ clean_subpage_label }}</li>
+        {% else %}
+        <li aria-current="page">{{ clean_module_label }}</li>
+        {% endif %}
+    </ol>
+</nav>
+{% endif %}
+
+<div
+    class="layout {% if not has_app_shell %}layout-plain{% endif %}{% if show_legacy_app_shell and not show_legacy_sidebar %} layout-no-sidebar{% endif %}"
+    {% if show_legacy_app_shell and not show_legacy_sidebar %}
+    style="grid-template-columns: minmax(0, 1fr);"
+    {% endif %}
+>
+
+{% if show_legacy_sidebar %}
 <button
     type="button"
     id="desktopSidebarToggle"
@@ -269,7 +424,7 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
     {% set is_pos_staff_report_active = request.path.startswith('/kasir/staff-sales') %}
     {% set is_pos_sales_log_active = request.path.startswith('/kasir/log') %}
     {% set is_pos_active = request.path.startswith('/kasir') %}
-    {% set is_wms_active = request.path == '/' or request.path.startswith('/products') or request.path.startswith('/stock') or request.path.startswith('/inbound') or request.path.startswith('/outbound') or request.path.startswith('/transfers') or request.path.startswith('/request') or request.path.startswith('/approvals') or request.path.startswith('/audit') or request.path.startswith('/so') or is_pos_active %}
+    {% set is_wms_active = request.path.startswith('/dashboard') or request.path.startswith('/products') or request.path.startswith('/stock') or request.path.startswith('/inbound') or request.path.startswith('/outbound') or request.path.startswith('/transfers') or request.path.startswith('/request') or request.path.startswith('/approvals') or request.path.startswith('/audit') or request.path.startswith('/so') or is_pos_active %}
     {% set is_request_active = request.path.startswith('/request') %}
     {% set is_request_owner_active = request.path.startswith('/request/owner') %}
     {% set is_request_queue_active = is_request_active and not is_request_owner_active %}
@@ -330,10 +485,6 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
 
             <div class="sidebar-footer sidebar-footer-rail">
                 <div class="sidebar-footer-actions">
-                    <button type="button" class="ghost-button sidebar-icon-button theme-toggle" data-theme-toggle aria-label="Ganti mode tampilan" title="Ganti mode tampilan" data-tooltip="Mode Tampilan">
-                        <img src="{{ asset_url('icons/workspace/utility-theme.svg') }}" alt="" class="sidebar-icon-image">
-                        <span class="sr-only" data-theme-toggle-label>Mode Cerah</span>
-                    </button>
                     <button type="button" class="ghost-button sidebar-icon-button sidebar-footer-link pwa-install-button" data-pwa-install-trigger hidden aria-label="Pasang aplikasi ERP ke perangkat" title="Pasang aplikasi" data-tooltip="Pasang Aplikasi">
                         <img src="{{ asset_url('icons/workspace/utility-install.svg') }}" alt="" class="sidebar-icon-image">
                         <span class="sr-only" data-pwa-install-label>Install App</span>
@@ -441,12 +592,12 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
             {% endif %}
 
             {% if can_view_wms %}
-            <section class="sidebar-subpanel" data-sidebar-main-panel="wms" data-sidebar-group="wms" {% if request.path == '/' or request.path.startswith('/stock') or request.path.startswith('/products') or is_pos_active or is_pos_staff_report_active or is_pos_sales_log_active or request.path.startswith('/inbound') or request.path.startswith('/outbound') or request.path.startswith('/transfers') or request.path.startswith('/request') or request.path.startswith('/approvals') or request.path.startswith('/audit') or request.path.startswith('/so') %}open{% endif %} hidden aria-hidden="true">
+            <section class="sidebar-subpanel" data-sidebar-main-panel="wms" data-sidebar-group="wms" {% if request.path.startswith('/dashboard') or request.path.startswith('/stock') or request.path.startswith('/products') or is_pos_active or is_pos_staff_report_active or is_pos_sales_log_active or request.path.startswith('/inbound') or request.path.startswith('/outbound') or request.path.startswith('/transfers') or request.path.startswith('/request') or request.path.startswith('/approvals') or request.path.startswith('/audit') or request.path.startswith('/so') %}open{% endif %} hidden aria-hidden="true">
                 <div class="sidebar-subpanel-head">
                     <h3>WMS</h3>
                 </div>
                 <div class="sidebar-subgrid">
-                    <a href="/" class="sidebar-subtile {% if request.path == '/' %}active{% endif %}" aria-label="Dashboard WMS">
+                    <a href="/dashboard/" class="sidebar-subtile {% if request.path.startswith('/dashboard') %}active{% endif %}" aria-label="Dashboard WMS">
                         <img src="{{ asset_url('icons/workspace/wms-dashboard.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Dashboard</span>
                     </a>
@@ -456,7 +607,7 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
                     </a>
                     {% set barcode_access_role = (session.get("role") or "")|replace(" ", "_")|replace("-", "_")|lower %}
                     {% if barcode_access_role in ["owner", "leader", "super_admin"] %}
-                    <a href="https://barcode.cvbjas.com" class="sidebar-subtile {% if request.path.startswith('/stock/barcode') %}active{% endif %}" aria-label="Barcode">
+                    <a href="/stock/barcode" class="sidebar-subtile {% if request.path.startswith('/stock/barcode') %}active{% endif %}" aria-label="Barcode">
                         <img src="{{ asset_url('icons/workspace/utility-generic.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Barcode</span>
                     </a>
@@ -549,6 +700,79 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
 
 <main class="main {% if not has_app_shell %}main-public{% endif %} {% block main_class %}{% endblock %}" id="mainContent">
     {% set page_actions_markup %}{% block page_actions %}{% endblock %}{% endset %}
+    {% if use_internal_clean_shell %}
+    {% set clean_icon_symbol_map = {
+        "Beranda": "⌂",
+        "Dashboard": "▦",
+        "Admin Center ERP": "⚙",
+        "Jadwal Kerja": "📅",
+        "Absen Foto": "🕒",
+        "Report": "📄",
+        "Late & Overtime": "🕒",
+        "KPI Staff": "📊",
+        "Customer Data": "💬",
+        "Member Senaran": "👥",
+        "Customer History": "i",
+        "Campaign": "📣",
+        "BJAS News": "📰",
+        "Memo Internal": "📝",
+        "SOP and Policy": "📄",
+        "Knowledge Base": "📚",
+        "Announcement": "📣",
+        "Request Permission": "📝",
+        "Libur / Cuti": "📝",
+        "Izin Sakit": "📝",
+        "Approval Manager": "✓",
+        "Log": "i",
+        "Role Access": "✓",
+        "Branch/Homebase": "📦",
+        "Notification": "📣",
+        "Account Setting": "⚙",
+        "Audit Log": "i",
+        "Dokumen": "📄",
+        "Company File": "📄",
+        "Shared File": "📁",
+        "Barcode/Stiker": "▦",
+        "Inventori": "📦",
+        "Input Item": "+",
+        "Transfer": "⇄",
+        "Request Owner": "💳",
+        "Request Gudang": "📝",
+        "Stock Opname": "✓",
+        "Transfers": "⇄",
+        "Outbound": "↗",
+        "Inbound": "↙",
+        "Stock & Produk": "📦",
+        "Audit Operasional": "i"
+    } %}
+    <div class="internal-module-layout module-layout clean-module-layout">
+        <aside class="internal-module-nav information-module-nav info-sidebar clean-module-sidebar">
+            <section class="table-box hris-module-disclosure information-sidebar-card" aria-label="Menu {{ clean_module_label }}">
+                <div class="hris-module-summary information-sidebar-head sidebar-title">
+                    <div class="hris-module-summary-copy">
+                        <span>Modul</span>
+                        <strong>{{ clean_module_label }}</strong>
+                    </div>
+                </div>
+                <nav class="cards hris-module-grid sidebar-menu" aria-label="Sub menu {{ clean_module_label }}">
+                    {% for item in clean_module_links %}
+                    <a href="{{ item.href }}" class="card hris-module-card sidebar-link {% if item.active %}active is-active{% endif %}">
+                        <span class="hris-module-nav-icon sidebar-icon" aria-hidden="true">{{ clean_icon_symbol_map.get(item.label, "▦") }}</span>
+                        <span class="hris-module-card-copy">
+                            <h2>{{ item.label }}</h2>
+                            {% if item.note %}
+                            <small>{{ item.note }}</small>
+                            {% endif %}
+                        </span>
+                    </a>
+                    {% endfor %}
+                </nav>
+            </section>
+        </aside>
+
+        <section class="internal-module-panel information-panel content-panel clean-content-panel">
+    {% endif %}
+
     {% if page_actions_markup|trim %}
     <section class="mobile-command-deck" id="mobileCommandDeck" hidden aria-hidden="true">
         <div class="mobile-command-deck-head">
@@ -590,6 +814,10 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
     <div class="page-content {% block page_content_class %}{% endblock %}">
         {% block content %}{% endblock %}
     </div>
+    {% if use_internal_clean_shell %}
+        </section>
+    </div>
+    {% endif %}
 </main>
 
 {% if app_version %}
@@ -600,7 +828,7 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
 
 </div>
 
-{% if has_app_shell %}
+{% if show_legacy_app_shell %}
 {% set show_floating_notification = true %}
 {% set show_floating_camera = not request.path.startswith('/absen') %}
 {% set show_floating_chat = can("view_chat") and not request.path.startswith('/chat') %}
@@ -643,7 +871,7 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
 </div>
 {% endif %}
 
-{% if has_app_shell %}
+{% if show_legacy_app_shell %}
 <div class="notification-center-root" id="notificationCenterRoot" data-notification-root>
     {% if shell_break_timer.active %}
     <div
@@ -712,7 +940,7 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
 </div>
 {% endif %}
 
-{% if has_app_shell and not request.path.startswith('/absen') %}
+{% if show_legacy_app_shell and not request.path.startswith('/absen') %}
 <div class="attendance-camera-shortcut-root">
     <a
         href="/absen/#foto-absen"
@@ -727,7 +955,7 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
 </div>
 {% endif %}
 
-{% if has_app_shell and can("view_chat") and not request.path.startswith('/chat') %}
+{% if show_legacy_app_shell and can("view_chat") and not request.path.startswith('/chat') %}
 <aside class="chat-incoming-banner" id="chatIncomingBanner" hidden aria-live="assertive" aria-atomic="true">
     <div class="chat-incoming-banner-media">
         <span class="chat-avatar" id="chatIncomingBannerAvatar">MS</span>
@@ -749,7 +977,7 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
 </aside>
 {% endif %}
 
-{% if has_app_shell and can("view_chat") and not request.path.startswith('/chat') %}
+{% if show_legacy_app_shell and can("view_chat") and not request.path.startswith('/chat') %}
 <div class="chat-widget-root" id="chatWidgetRoot">
     <button
         type="button"
@@ -857,7 +1085,11 @@ window.wmsDisplayTimeZone = {{ app_display_time_zone|tojson }};
     <a href="/stock" class="{% if request.path.startswith('/stock') %}active{% endif %}">Stok</a>
     <a href="/request" class="{% if request.path.startswith('/request') %}active{% endif %}">Request</a>
     <a href="/so" class="{% if request.path.startswith('/so') %}active{% endif %}">Opname</a>
+    {% if show_legacy_sidebar %}
     <button type="button" class="{% if request.path.startswith('/admin') or request.path.startswith('/audit') or request.path.startswith('/approvals') %}active{% endif %}" onclick="toggleMenu()">Menu</button>
+    {% else %}
+    <a href="/workspace/">Portal</a>
+    {% endif %}
 </nav>
 {% endif %}
 
@@ -1081,40 +1313,18 @@ function restoreSidebarMainPanelState() {
     });
 }
 
-function getResponsiveViewportWidth() {
-    const candidates = [
-        window.innerWidth,
-        document.documentElement ? document.documentElement.clientWidth : 0,
-        window.visualViewport ? window.visualViewport.width : 0,
-    ]
-        .map((value) => Number(value))
-        .filter((value) => Number.isFinite(value) && value > 0);
-    return candidates.length ? Math.min(...candidates) : window.innerWidth;
-}
-
-function isCoarseTouchViewport() {
-    return Boolean(
-        window.matchMedia
-        && window.matchMedia("(hover: none) and (pointer: coarse)").matches
-    );
-}
-
 function getDeviceMode() {
-    const viewportWidth = getResponsiveViewportWidth();
-    if (isCoarseTouchViewport() && viewportWidth > 1080) {
-        return "tablet";
-    }
-    if (viewportWidth <= 767) {
+    if (window.innerWidth <= 767) {
         return "mobile";
     }
-    if (viewportWidth <= 1080) {
+    if (window.innerWidth <= 1080) {
         return "tablet";
     }
     return "desktop";
 }
 
 function isDesktopViewport() {
-    return getDeviceMode() === "desktop";
+    return window.innerWidth > 1080;
 }
 
 let responsiveShellResizeFrame = 0;
@@ -1220,7 +1430,7 @@ function syncResponsiveShell() {
 }
 
 function queueResponsiveShellResize(force = false) {
-    const nextWidth = getResponsiveViewportWidth();
+    const nextWidth = window.innerWidth;
     const nextMode = getDeviceMode();
     const widthChanged = Math.abs(nextWidth - responsiveShellViewportWidth) > 1;
     const modeChanged = nextMode !== responsiveShellDeviceMode;
@@ -1244,7 +1454,7 @@ function queueResponsiveShellResize(force = false) {
             return;
         }
 
-        if (isDesktopViewport()) {
+        if (window.innerWidth > 1080) {
             closeMenu();
             restoreDesktopSidebarState();
         } else {
@@ -1349,41 +1559,28 @@ function showToast(text) {
 }
 
 function getThemeMetaColor(theme) {
-    return theme === "light" ? "#eaf2fb" : "#07111f";
+    return "#f4f6fa";
 }
 
 function getCurrentTheme() {
-    return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+    return "light";
 }
 
 function syncThemeToggleState(theme) {
-    const nextLabel = theme === "dark" ? "Mode Cerah" : "Mode Gelap";
-    const title = `Aktif: Mode ${theme === "dark" ? "Gelap" : "Cerah"}. Klik untuk ganti ke ${nextLabel}.`;
     const themeColorMeta = document.getElementById("themeColorMeta");
 
     if (themeColorMeta) {
-        themeColorMeta.setAttribute("content", getThemeMetaColor(theme));
+        themeColorMeta.setAttribute("content", getThemeMetaColor("light"));
     }
-
-    document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
-        button.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
-        button.setAttribute("title", title);
-        button.setAttribute("aria-label", title);
-        const label = button.querySelector("[data-theme-toggle-label]");
-        if (label) {
-            label.textContent = nextLabel;
-        }
-    });
 }
 
 function applyTheme(theme) {
-    const safeTheme = theme === "light" ? "light" : "dark";
-    document.documentElement.dataset.theme = safeTheme;
+    document.documentElement.dataset.theme = "light";
     try {
-        localStorage.setItem("wms-theme", safeTheme);
+        localStorage.removeItem("wms-theme");
     } catch (error) {
     }
-    syncThemeToggleState(safeTheme);
+    syncThemeToggleState("light");
 }
 
 document.querySelectorAll(".flash").forEach((flash) => {
@@ -1443,13 +1640,7 @@ if (hasAppShell) {
     });
 }
 
-document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
-    button.addEventListener("click", () => {
-        applyTheme(getCurrentTheme() === "dark" ? "light" : "dark");
-    });
-});
-
-syncThemeToggleState(getCurrentTheme());
+applyTheme("light");
 
 if (hasAppShell) {
     restoreDesktopSidebarState();
@@ -1470,12 +1661,6 @@ window.requestAnimationFrame(normalizeSidebarShellLayout);
 window.addEventListener("resize", () => {
     queueResponsiveShellResize(false);
 });
-
-if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", () => {
-        queueResponsiveShellResize(false);
-    }, { passive: true });
-}
 
 window.addEventListener("pageshow", () => {
     normalizeSidebarShellLayout();
@@ -1627,6 +1812,17 @@ window.wmsRunWhenIdle = window.wmsRunWhenIdle || function (callback, timeout = 8
     "publicHostMode": public_host_mode
 }|tojson }}
 </script>
+<script id="wmsLazyScriptConfigData" type="application/json">
+{{ {
+    "pushNotificationsUrl": push_notifications_js_url,
+    "chatUiSharedUrl": chat_ui_shared_js_url,
+    "chatRealtimeUrl": chat_realtime_js_url,
+    "chatWidgetUrl": chat_widget_js_url,
+    "tableLayoutControlsUrl": table_layout_controls_js_url,
+    "searchableSelectUrl": searchable_select_js_url,
+    "showLegacyAppShell": show_legacy_app_shell
+}|tojson }}
+</script>
 <script>
 window.wmsReadJsonScript = window.wmsReadJsonScript || function (id) {
     const node = document.getElementById(id);
@@ -1642,6 +1838,7 @@ window.wmsReadJsonScript = window.wmsReadJsonScript || function (id) {
 window.wmsPushConfig = window.wmsReadJsonScript("wmsPushConfigData");
 window.wmsNotificationCenterConfig = window.wmsReadJsonScript("wmsNotificationCenterConfigData");
 window.wmsAppShellConfig = window.wmsReadJsonScript("wmsAppShellConfigData");
+window.wmsLazyScriptConfig = window.wmsReadJsonScript("wmsLazyScriptConfigData");
 </script>
 <script defer src="{{ app_shell_js_url }}"></script>
 <script defer src="{{ web_notifications_js_url }}"></script>
@@ -1650,10 +1847,11 @@ window.wmsAppShellConfig = window.wmsReadJsonScript("wmsAppShellConfigData");
     const loadScript = window.wmsLoadScript;
     const runWhenIdle = window.wmsRunWhenIdle;
     const deviceProfile = window.wmsDeviceProfile || {};
+    const scriptConfig = window.wmsLazyScriptConfig || {};
     const lowEndDevice = Boolean(deviceProfile.lowEnd);
     const balancedDevice = deviceProfile.performanceTier === "balanced";
     runWhenIdle(() => {
-        void loadScript("{{ push_notifications_js_url }}");
+        void loadScript(scriptConfig.pushNotificationsUrl);
     }, lowEndDevice ? 4200 : (balancedDevice ? 2600 : 1800));
 })();
 </script>
@@ -1719,18 +1917,18 @@ window.wmsChatRealtimeConfig = window.wmsReadJsonScript("wmsChatRealtimeConfigDa
     const loadScript = window.wmsLoadScript;
     const runWhenIdle = window.wmsRunWhenIdle;
     const deviceProfile = window.wmsDeviceProfile || {};
+    const scriptConfig = window.wmsLazyScriptConfig || {};
     const lowEndDevice = Boolean(deviceProfile.lowEnd);
     const balancedDevice = deviceProfile.performanceTier === "balanced";
-    const loadChatShared = () => loadScript("{{ chat_ui_shared_js_url }}");
-    const loadChatRealtime = () => loadChatShared().then(() => loadScript("{{ chat_realtime_js_url }}"));
+    const loadChatShared = () => loadScript(scriptConfig.chatUiSharedUrl);
+    const loadChatRealtime = () => loadChatShared().then(() => loadScript(scriptConfig.chatRealtimeUrl));
 
     runWhenIdle(() => {
         void loadChatRealtime();
     }, lowEndDevice ? 2400 : (balancedDevice ? 1700 : 1200));
 
-    {% if has_app_shell %}
-    const loadChatWidget = () => loadChatShared().then(() => loadScript("{{ chat_widget_js_url }}"));
-    if (!lowEndDevice) {
+    const loadChatWidget = () => loadChatShared().then(() => loadScript(scriptConfig.chatWidgetUrl));
+    if (scriptConfig.showLegacyAppShell && !lowEndDevice) {
         runWhenIdle(() => {
             void loadChatWidget();
         }, balancedDevice ? 2600 : 1800);
@@ -1748,19 +1946,18 @@ window.wmsChatRealtimeConfig = window.wmsReadJsonScript("wmsChatRealtimeConfigDa
             void loadChatWidget();
         }, { once: true });
     });
-    {% endif %}
 })();
 </script>
 {% endif %}
 {% endif %}
-{% if has_app_shell %}
+{% if show_legacy_app_shell %}
 <script defer src="{{ floating_toolbelt_js_url }}"></script>
 {% endif %}
 <script defer src="{{ currency_inputs_js_url }}"></script>
 <script>
 window.wmsRunWhenIdle(() => {
     if (document.querySelector(".table-box table")) {
-        void window.wmsLoadScript("{{ table_layout_controls_js_url }}");
+        void window.wmsLoadScript((window.wmsLazyScriptConfig || {}).tableLayoutControlsUrl);
     }
 }, 900);
 </script>
@@ -1919,11 +2116,241 @@ window.wmsRunWhenIdle(() => {
 })();
 </script>
 <script>
+(() => {
+    const menuShells = Array.from(document.querySelectorAll("[data-topbar-menu]"));
+
+    if (!menuShells.length) {
+        return;
+    }
+
+    const closeTopbarMenus = (exceptShell = null) => {
+        menuShells.forEach((shell) => {
+            if (shell === exceptShell) {
+                return;
+            }
+            const trigger = shell.querySelector("[data-topbar-menu-trigger]");
+            const panel = shell.querySelector("[data-topbar-menu-panel]");
+            shell.classList.remove("is-open");
+            if (trigger) {
+                trigger.setAttribute("aria-expanded", "false");
+            }
+            if (panel) {
+                panel.hidden = true;
+            }
+        });
+    };
+
+    const renderTopbarNotifications = (panel, items) => {
+        const list = panel.querySelector("[data-topbar-notification-list]");
+        if (!list) {
+            return;
+        }
+
+        list.textContent = "";
+
+        if (!items.length) {
+            const empty = document.createElement("div");
+            empty.className = "topbar-notification-item";
+            empty.innerHTML = "<span aria-hidden=\"true\">&#8226;</span><span>Belum ada notifikasi baru.</span>";
+            list.appendChild(empty);
+            return;
+        }
+
+        items.forEach((item) => {
+            const link = document.createElement("a");
+            link.className = "topbar-notification-item";
+            link.href = item.link_url || "/notifications/";
+
+            const bullet = document.createElement("span");
+            bullet.setAttribute("aria-hidden", "true");
+            bullet.textContent = "•";
+
+            const copy = document.createElement("span");
+            const title = document.createElement("span");
+            title.textContent = item.title || "Notifikasi";
+            copy.appendChild(title);
+
+            if (item.message) {
+                const message = document.createElement("small");
+                message.textContent = item.message;
+                copy.appendChild(message);
+            }
+
+            link.appendChild(bullet);
+            link.appendChild(copy);
+            list.appendChild(link);
+        });
+    };
+
+    const loadTopbarNotifications = async (panel) => {
+        if (!panel || panel.dataset.loaded === "1") {
+            return;
+        }
+        panel.dataset.loaded = "1";
+
+        try {
+            const response = await fetch("/notifications/api?filter=all&limit=4", {
+                headers: { "Accept": "application/json" },
+                credentials: "same-origin",
+            });
+            if (!response.ok) {
+                return;
+            }
+            const payload = await response.json();
+            renderTopbarNotifications(panel, Array.isArray(payload.items) ? payload.items : []);
+        } catch (error) {
+            panel.dataset.loaded = "0";
+        }
+    };
+
+    document.addEventListener("click", (event) => {
+        const modeButton = event.target.closest("[data-topbar-light-mode]");
+        if (modeButton) {
+            event.preventDefault();
+            applyTheme("light");
+            showToast("Mode terang aktif.");
+            closeTopbarMenus();
+            return;
+        }
+
+        const trigger = event.target.closest("[data-topbar-menu-trigger]");
+        if (trigger) {
+            event.preventDefault();
+            const shell = trigger.closest("[data-topbar-menu]");
+            const panel = shell?.querySelector("[data-topbar-menu-panel]");
+            const shouldOpen = !shell.classList.contains("is-open");
+
+            closeTopbarMenus(shell);
+
+            shell.classList.toggle("is-open", shouldOpen);
+            trigger.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+            if (panel) {
+                panel.hidden = !shouldOpen;
+                if (shouldOpen && panel.matches("[data-topbar-notification-panel]")) {
+                    void loadTopbarNotifications(panel);
+                }
+            }
+            return;
+        }
+
+        if (!event.target.closest("[data-topbar-menu]")) {
+            closeTopbarMenus();
+        }
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeTopbarMenus();
+        }
+    });
+})();
+</script>
+<script>
 window.wmsRunWhenIdle(() => {
     if (document.querySelector('select[data-searchable-select="1"]')) {
-        void window.wmsLoadScript("{{ searchable_select_js_url }}");
+        void window.wmsLoadScript((window.wmsLazyScriptConfig || {}).searchableSelectUrl);
     }
 }, 1000);
+</script>
+<script>
+(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    const reducedMotion = Boolean(
+        root.dataset.reducedEffects === "1"
+        || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+    );
+
+    if (!body || reducedMotion) {
+        root.classList.add("page-motion-ready");
+        return;
+    }
+
+    const isFirstVisit = (() => {
+        try {
+            return sessionStorage.getItem("wms-page-motion-seen") !== "1";
+        } catch (error) {
+            return true;
+        }
+    })();
+    const introDelay = isFirstVisit ? 560 : 120;
+
+    function markReady() {
+        root.classList.remove("page-motion-leaving");
+        root.classList.add("page-motion-ready");
+        try {
+            sessionStorage.setItem("wms-page-motion-seen", "1");
+        } catch (error) {
+        }
+    }
+
+    window.setTimeout(markReady, introDelay);
+
+    window.addEventListener("pageshow", () => {
+        window.setTimeout(markReady, 40);
+    });
+
+    window.addEventListener("pagehide", () => {
+        root.classList.remove("page-motion-leaving");
+    });
+
+    document.addEventListener("click", (event) => {
+        if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return;
+        }
+
+        const rawTarget = event.target;
+        const target = rawTarget && rawTarget.nodeType === 1
+            ? rawTarget
+            : (rawTarget && rawTarget.parentElement ? rawTarget.parentElement : null);
+        if (!target || typeof target.closest !== "function") {
+            return;
+        }
+
+        const link = target.closest("a[href]");
+        if (!link) {
+            return;
+        }
+
+        const rawHref = String(link.getAttribute("href") || "").trim();
+        if (
+            !rawHref
+            || rawHref.startsWith("#")
+            || rawHref.startsWith("javascript:")
+            || link.target
+            || link.hasAttribute("download")
+            || link.closest("[data-no-page-transition]")
+        ) {
+            return;
+        }
+
+        let targetUrl;
+        try {
+            targetUrl = new URL(link.href, window.location.href);
+        } catch (error) {
+            return;
+        }
+
+        if (targetUrl.origin !== window.location.origin) {
+            return;
+        }
+
+        const currentUrl = new URL(window.location.href);
+        const onlyHashChanged = targetUrl.pathname === currentUrl.pathname
+            && targetUrl.search === currentUrl.search
+            && targetUrl.hash;
+        if (onlyHashChanged) {
+            return;
+        }
+
+        event.preventDefault();
+        root.classList.remove("page-motion-ready");
+        root.classList.add("page-motion-leaving");
+        window.setTimeout(() => {
+            window.location.href = targetUrl.href;
+        }, 180);
+    }, true);
+})();
 </script>
 {% block extra_scripts %}{% endblock %}
 </body>

@@ -4,10 +4,8 @@
 {% block eyebrow %}Administrasi Sistem{% endblock %}
 {% block page_title %}Hak Akses Fitur{% endblock %}
 {% block page_subtitle %}Panel khusus super admin untuk memberi akses tambahan atau mencabut akses default per user tanpa mengubah role utama dan tanpa edit kode manual di VPS.{% endblock %}
-
-{% block page_actions %}
-<a href="/admin/" class="ghost-button">Kembali ke Admin</a>
-{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
+{% block body_class %}admin-suite-shell{% endblock %}
 
 {% block content %}
 {% include "partials/admin_local_nav.html" %}
@@ -131,9 +129,7 @@
                                         {% else %}
                                         <span class="status-pill">Opsional</span>
                                         {% endif %}
-                                        <span class="status-pill">{{ permission.impact_label }}</span>
                                     </div>
-                                    <small class="helper-text">{{ permission.impact_help }}</small>
                                     <div class="stack-gap-sm">
                                         {% if permission.is_role_default %}
                                         <label>

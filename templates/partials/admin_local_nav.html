@@ -1,26 +1,414 @@
-<div class="box admin-local-nav-box">
-    <div class="split-actions admin-local-nav">
-        <a href="/admin/" class="ghost-button {% if admin_section == 'access' %}active{% endif %}">Akses &amp; Role</a>
-        {% if session.get("role") == "super_admin" %}
-        <a href="/admin/permissions" class="ghost-button {% if admin_section == 'permissions' %}active{% endif %}">Hak Akses Fitur</a>
-        {% endif %}
-        <a href="/admin/warehouses" class="ghost-button {% if admin_section == 'warehouses' %}active{% endif %}">Sistem Gudang</a>
-        <a href="/admin/notifications" class="ghost-button {% if admin_section == 'notifications' %}active{% endif %}">Klasifikasi Notif</a>
+<style>
+    body.admin-suite-shell {
+        --admin-bg: #f4f7fb;
+        --admin-surface: #ffffff;
+        --admin-line: #d6e1ec;
+        --admin-line-strong: #c2d3e4;
+        --admin-text: #0f2a4d;
+        --admin-muted: #64748b;
+        --admin-gold: #d7a635;
+        --admin-blue: #102b52;
+        --admin-shadow: 0 18px 38px rgba(16, 41, 71, 0.06);
+        font-family: "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--admin-bg);
+    }
+
+    body.admin-suite-shell .page-hero {
+        padding: 18px 28px 16px !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+
+    body.admin-suite-shell .page-eyebrow {
+        color: var(--admin-gold) !important;
+        font-size: 0.74rem !important;
+        font-weight: 900 !important;
+        letter-spacing: 0.12em !important;
+        text-transform: uppercase !important;
+    }
+
+    body.admin-suite-shell .page-hero h1 {
+        color: var(--admin-text) !important;
+        font-size: clamp(2.4rem, 3.8vw, 4rem) !important;
+        line-height: 0.95 !important;
+        letter-spacing: -0.065em !important;
+        font-weight: 800 !important;
+    }
+
+    body.admin-suite-shell .page-subtitle {
+        max-width: 980px !important;
+        color: var(--admin-muted) !important;
+        font-size: 1.02rem !important;
+        line-height: 1.55 !important;
+    }
+
+    body.admin-suite-shell .page-actions-desktop-slot {
+        display: none !important;
+    }
+
+    body.admin-suite-shell .page-content {
+        display: grid !important;
+        grid-template-columns: 260px minmax(0, 1fr) !important;
+        align-items: start !important;
+        gap: 22px !important;
+        padding: 22px 30px 32px !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+
+    body.admin-suite-shell .page-content > :not(.admin-local-nav-box) {
+        grid-column: 2 !important;
+        min-width: 0 !important;
+    }
+
+    body.admin-suite-shell .admin-local-nav-box {
+        grid-column: 1 !important;
+        grid-row: 1 / span 50 !important;
+        position: sticky !important;
+        top: 86px !important;
+        overflow: hidden !important;
+        border: 1px solid var(--admin-line) !important;
+        border-top: 3px solid var(--admin-gold) !important;
+        border-radius: 16px !important;
+        background: #ffffff !important;
+        box-shadow: var(--admin-shadow) !important;
+    }
+
+    body.admin-suite-shell .admin-local-nav-head {
+        padding: 22px 24px 20px !important;
+        border-bottom: 1px solid var(--admin-line) !important;
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%) !important;
+    }
+
+    body.admin-suite-shell .admin-local-nav-head span {
+        display: block !important;
+        margin-bottom: 5px !important;
+        color: var(--admin-gold) !important;
+        font-size: 0.72rem !important;
+        font-weight: 900 !important;
+        letter-spacing: 0.14em !important;
+        text-transform: uppercase !important;
+    }
+
+    body.admin-suite-shell .admin-local-nav-head strong {
+        display: block !important;
+        color: var(--admin-text) !important;
+        font-size: 1.12rem !important;
+        font-weight: 900 !important;
+        letter-spacing: -0.035em !important;
+    }
+
+    body.admin-suite-shell .admin-local-nav {
+        display: grid !important;
+        gap: 0 !important;
+        padding: 0 !important;
+    }
+
+    body.admin-suite-shell .admin-local-link {
+        display: grid !important;
+        grid-template-columns: 22px minmax(0, 1fr) !important;
+        align-items: center !important;
+        gap: 12px !important;
+        min-height: 58px !important;
+        padding: 0 24px !important;
+        border: 0 !important;
+        border-bottom: 1px solid rgba(214, 225, 236, 0.62) !important;
+        border-top: 3px solid rgba(215, 166, 53, 0.55) !important;
+        border-radius: 0 !important;
+        background: #ffffff !important;
+        color: #34445a !important;
+        text-decoration: none !important;
+        font-size: 0.93rem !important;
+        font-weight: 850 !important;
+        letter-spacing: -0.01em !important;
+        box-shadow: none !important;
+        transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+    }
+
+    body.admin-suite-shell .admin-local-link:first-child {
+        border-top: 0 !important;
+    }
+
+    body.admin-suite-shell .admin-local-link:hover {
+        background: #fbfdff !important;
+        color: var(--admin-text) !important;
+        transform: translateX(2px);
+    }
+
+    body.admin-suite-shell .admin-local-link.active,
+    body.admin-suite-shell .admin-local-link.is-active {
+        min-height: 64px !important;
+        border-top-color: var(--admin-gold) !important;
+        background: var(--admin-blue) !important;
+        color: #ffffff !important;
+        box-shadow: inset 0 -3px 0 rgba(95, 184, 255, 0.95) !important;
+        transform: none !important;
+    }
+
+    body.admin-suite-shell .admin-local-link-icon {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 20px !important;
+        height: 20px !important;
+    }
+
+    body.admin-suite-shell .admin-local-link-icon img {
+        width: 17px !important;
+        height: 17px !important;
+        object-fit: contain !important;
+        opacity: 0.82 !important;
+    }
+
+    body.admin-suite-shell .admin-local-link.active .admin-local-link-icon img,
+    body.admin-suite-shell .admin-local-link.is-active .admin-local-link-icon img {
+        filter: brightness(0) invert(1) !important;
+        opacity: 0.95 !important;
+    }
+
+    body.admin-suite-shell .summary,
+    body.admin-suite-shell .meta-grid {
+        gap: 16px !important;
+        margin-bottom: 18px !important;
+    }
+
+    body.admin-suite-shell .summary {
+        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    }
+
+    body.admin-suite-shell .meta-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    }
+
+    body.admin-suite-shell .summary > *,
+    body.admin-suite-shell .meta-grid > *,
+    body.admin-suite-shell .card-mini,
+    body.admin-suite-shell .meta-card,
+    body.admin-suite-shell .table-box,
+    body.admin-suite-shell .form-box,
+    body.admin-suite-shell .box,
+    body.admin-suite-shell .panel {
+        border-color: var(--admin-line) !important;
+        background: #ffffff !important;
+        box-shadow: none !important;
+    }
+
+    body.admin-suite-shell .summary > *,
+    body.admin-suite-shell .meta-grid > * {
+        min-height: 92px !important;
+        padding: 16px 18px 14px !important;
+        border: 1px solid var(--admin-line) !important;
+        border-top: 3px solid var(--admin-gold) !important;
+        border-radius: 14px !important;
+        background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%) !important;
+    }
+
+    body.admin-suite-shell .card-mini.warning,
+    body.admin-suite-shell .card-mini.success,
+    body.admin-suite-shell .card-mini.danger {
+        background: #ffffff !important;
+    }
+
+    body.admin-suite-shell .card-mini p,
+    body.admin-suite-shell .meta-card span {
+        margin: 0 0 10px !important;
+        color: #6d7f95 !important;
+        font-size: 0.72rem !important;
+        font-weight: 800 !important;
+        letter-spacing: 0.12em !important;
+        text-transform: uppercase !important;
+    }
+
+    body.admin-suite-shell .card-mini h3,
+    body.admin-suite-shell .meta-card strong {
+        color: var(--admin-text) !important;
+        font-size: clamp(2rem, 2.4vw, 2.7rem) !important;
+        line-height: 0.95 !important;
+        letter-spacing: -0.06em !important;
+        font-weight: 800 !important;
+    }
+
+    body.admin-suite-shell .panel-disclosure,
+    body.admin-suite-shell .table-box,
+    body.admin-suite-shell .form-box,
+    body.admin-suite-shell .box {
+        border: 1px solid var(--admin-line) !important;
+        border-top: 3px solid var(--admin-gold) !important;
+        border-radius: 16px !important;
+        box-shadow: var(--admin-shadow) !important;
+    }
+
+    body.admin-suite-shell .panel-summary {
+        align-items: center !important;
+        padding: 20px 20px 16px !important;
+    }
+
+    body.admin-suite-shell .panel-summary .section-title h2,
+    body.admin-suite-shell .panel-summary .section-title h3,
+    body.admin-suite-shell .section-title h2,
+    body.admin-suite-shell .section-title h3 {
+        color: var(--admin-text) !important;
+        font-weight: 800 !important;
+    }
+
+    body.admin-suite-shell .panel-summary p,
+    body.admin-suite-shell .section-title p,
+    body.admin-suite-shell .helper-text,
+    body.admin-suite-shell small {
+        color: var(--admin-muted) !important;
+    }
+
+    body.admin-suite-shell .panel-summary-meta .badge,
+    body.admin-suite-shell .status-pill,
+    body.admin-suite-shell .panel-summary-state {
+        border: 1px solid var(--admin-line) !important;
+        background: #ffffff !important;
+        color: var(--admin-text) !important;
+        box-shadow: none !important;
+    }
+
+    body.admin-suite-shell .panel-disclosure[open] .panel-summary-state {
+        background: #fff7df !important;
+        border-color: #ead391 !important;
+    }
+
+    body.admin-suite-shell .admin-role-guide-grid {
+        gap: 16px !important;
+    }
+
+    body.admin-suite-shell .admin-role-card {
+        padding: 18px 18px 16px !important;
+        border: 1px solid var(--admin-line) !important;
+        border-top: 3px solid var(--admin-gold) !important;
+        border-radius: 14px !important;
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%) !important;
+        box-shadow: var(--admin-shadow) !important;
+    }
+
+    body.admin-suite-shell .admin-role-card.success {
+        border-top-color: #b8e5c8 !important;
+    }
+
+    body.admin-suite-shell .admin-role-card p {
+        color: #6d7f95 !important;
+    }
+
+    body.admin-suite-shell .admin-role-card h2 {
+        color: var(--admin-text) !important;
+    }
+
+    body.admin-suite-shell .admin-role-copy {
+        color: var(--admin-muted) !important;
+    }
+
+    body.admin-suite-shell .admin-hidden-archive-card {
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%) !important;
+        color: var(--admin-text) !important;
+        border: 1px solid var(--admin-line) !important;
+        border-top: 3px solid var(--admin-gold) !important;
+        box-shadow: var(--admin-shadow) !important;
+    }
+
+    body.admin-suite-shell .admin-hidden-archive-card span {
+        color: var(--admin-muted) !important;
+    }
+
+    body.admin-suite-shell .admin-secret-trigger {
+        -webkit-appearance: none !important;
+        appearance: none !important;
+        display: inline !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        color: inherit !important;
+        box-shadow: none !important;
+        font: inherit !important;
+        line-height: inherit !important;
+        vertical-align: baseline !important;
+        user-select: none !important;
+        -webkit-user-select: none !important;
+    }
+
+    body.admin-suite-shell .admin-secret-trigger:hover,
+    body.admin-suite-shell .admin-secret-trigger:focus {
+        background: transparent !important;
+        color: inherit !important;
+        box-shadow: none !important;
+    }
+
+    body.admin-suite-shell .admin-secret-trigger::selection,
+    body.admin-suite-shell .admin-secret-trigger *::selection {
+        background: transparent !important;
+        color: inherit !important;
+    }
+
+    @media (max-width: 980px) {
+        body.admin-suite-shell .page-content {
+            grid-template-columns: 1fr !important;
+            padding: 16px !important;
+        }
+
+        body.admin-suite-shell .page-content > :not(.admin-local-nav-box),
+        body.admin-suite-shell .admin-local-nav-box {
+            grid-column: 1 !important;
+            grid-row: auto !important;
+        }
+
+        body.admin-suite-shell .admin-local-nav-box {
+            position: static !important;
+        }
+
+        body.admin-suite-shell .summary,
+        body.admin-suite-shell .meta-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        }
+    }
+
+    @media (max-width: 640px) {
+        body.admin-suite-shell .summary,
+        body.admin-suite-shell .meta-grid {
+            grid-template-columns: 1fr !important;
+        }
+    }
+</style>
+<aside class="admin-local-nav-box" aria-label="Navigasi BJAS Setting">
+    <div class="admin-local-nav-head">
+        <span>Modul</span>
+        <strong>BJAS Setting</strong>
     </div>
-    <small class="helper-text">
-        {% if admin_section == "access" %}
-        Halaman ini khusus untuk mengatur role, user, notifikasi akun, dan kontrol akses
+    <nav class="admin-local-nav">
+        <a href="/admin/" class="admin-local-link {% if admin_section == 'access' %}active is-active{% endif %}">
+            <span class="admin-local-link-icon" aria-hidden="true"><img src="{{ asset_url('icons/workspace/hris-home.svg') }}" alt=""></span>
+            <span>Dashboard</span>
+        </a>
+        <a href="/admin/department" class="admin-local-link {% if admin_section == 'department' %}active is-active{% endif %}">
+            <span class="admin-local-link-icon" aria-hidden="true"><img src="{{ asset_url('icons/workspace/group-system.svg') }}" alt=""></span>
+            <span>Department</span>
+        </a>
+        <a href="/admin/users" class="admin-local-link {% if admin_section == 'users' %}active is-active{% endif %}">
+            <span class="admin-local-link-icon" aria-hidden="true"><img src="{{ asset_url('icons/workspace/utility-account-settings.svg') }}" alt=""></span>
+            <span>User Management</span>
+        </a>
         {% if session.get("role") == "super_admin" %}
-        <button type="button" class="admin-secret-trigger" data-admin-hidden-archive-trigger>sistem</button>.
-        {% else %}
-        sistem.
+        <a href="/admin/permissions" class="admin-local-link {% if admin_section == 'permissions' %}active is-active{% endif %}">
+            <span class="admin-local-link-icon" aria-hidden="true"><img src="{{ asset_url('icons/workspace/wms-approvals.svg') }}" alt=""></span>
+            <span>Role &amp; Access</span>
+        </a>
         {% endif %}
-        {% elif admin_section == "permissions" %}
-        Halaman ini khusus untuk super admin yang ingin memberi akses tambahan atau mencabut akses default per user tanpa mengubah role dasarnya.
-        {% elif admin_section == "notifications" %}
-        Halaman ini khusus untuk mengatur event notifikasi ERP yang dikirim ke role dan user tertentu tanpa ubah kode.
-        {% else %}
-        Halaman ini khusus untuk mengatur gudang aktif yang dipakai WMS dan HRIS.
-        {% endif %}
-    </small>
-</div>
+        <a href="/admin/warehouses" class="admin-local-link {% if admin_section == 'warehouses' %}active is-active{% endif %}">
+            <span class="admin-local-link-icon" aria-hidden="true"><img src="{{ asset_url('icons/workspace/group-workspace.svg') }}" alt=""></span>
+            <span>Branch/Store</span>
+        </a>
+        <a href="/audit/" class="admin-local-link">
+            <span class="admin-local-link-icon" aria-hidden="true"><img src="{{ asset_url('icons/workspace/wms-audit-log.svg') }}" alt=""></span>
+            <span>Audit Log</span>
+        </a>
+    </nav>
+</aside>

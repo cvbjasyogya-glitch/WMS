@@ -4,6 +4,9 @@
 {% block eyebrow %}POS Analytics{% endblock %}
 {% block page_title %}Log Penjualan POS{% endblock %}
 {% block page_subtitle %}{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
+{% block body_class %}pos-page-wide pos-tool-page{% endblock %}
+{% block page_header %}{% endblock %}
 
 {% block page_actions %}
 <div class="split-actions">
@@ -396,15 +399,24 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script id="posSalesLogClientConfigData" type="application/json">
+{{ {
+    "paymentMethods": payment_methods,
+    "paymentMethodLabels": payment_method_labels
+}|tojson }}
+</script>
 <script>
+const posSalesLogClientConfig = window.wmsReadJsonScript("posSalesLogClientConfigData");
 const posSalesLogRuntimeUrl = new URL(window.location.href);
 const posSalesLogDesktopSource = String(posSalesLogRuntimeUrl.searchParams.get("source") || "");
 const posSalesLogDesktopBridge = String(
     posSalesLogRuntimeUrl.searchParams.get("desktop_bridge")
     || (posSalesLogDesktopSource === "desktop-kasir" ? "http://127.0.0.1:17844" : "")
 ).replace(/\/+$/, "");
-const posSalesLogPaymentMethods = {{ payment_methods | tojson }};
-const posSalesLogPaymentMethodLabels = {{ payment_method_labels | tojson }};
+const posSalesLogPaymentMethods = Array.isArray(posSalesLogClientConfig.paymentMethods)
+    ? posSalesLogClientConfig.paymentMethods
+    : [];
+const posSalesLogPaymentMethodLabels = posSalesLogClientConfig.paymentMethodLabels || {};
 
 function buildPosSalesLogRuntimeUrl(url) {
     const resolved = new URL(String(url || "/"), window.location.origin);
@@ -422,15 +434,6 @@ const posSalesContextMenu = document.getElementById("posSalesLogContextMenu");
 const posSalesContextBody = document.getElementById("posSalesLogContextBody");
 let activePosSalesRow = null;
 let ignoreNextPosSalesLogClick = false;
-
-function notifyPosSalesLog(message) {
-    if (!message) return;
-    if (typeof window.showToast === "function") {
-        window.showToast(message);
-        return;
-    }
-    console.warn(message);
-}
 
 function closePosSalesContextMenu() {
     if (!posSalesContextMenu || posSalesContextMenu.hidden) {
@@ -467,44 +470,6 @@ function appendPosSalesContextButton(fragment, label, onClick) {
     button.textContent = label;
     button.addEventListener("click", onClick);
     fragment.appendChild(button);
-}
-
-function appendPosSalesContextDateForm(fragment, row, saleId, receiptNo, currentSaleDate) {
-    const form = document.createElement("form");
-    form.className = "pos-sales-context-form";
-    form.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const input = form.querySelector("input[name='sale_date']");
-        const nextSaleDate = String(input?.value || "").trim();
-        if (!nextSaleDate) {
-            notifyPosSalesLog("Isi tanggal transaksi dulu.");
-            input?.focus();
-            return;
-        }
-        if (nextSaleDate === currentSaleDate) {
-            notifyPosSalesLog(`Tanggal transaksi ${receiptNo || "-"} sudah ${currentSaleDate || "-"}.`);
-            return;
-        }
-        closePosSalesContextMenu();
-        submitPosSaleDateUpdate(row, saleId, nextSaleDate).catch((error) => {
-            notifyPosSalesLog(error.message || "Tanggal transaksi gagal diperbarui.");
-        });
-    });
-
-    const input = document.createElement("input");
-    input.type = "date";
-    input.name = "sale_date";
-    input.value = currentSaleDate || "";
-    input.setAttribute("aria-label", `Tanggal transaksi ${receiptNo || ""}`.trim());
-    form.appendChild(input);
-
-    const updateButton = document.createElement("button");
-    updateButton.type = "submit";
-    updateButton.className = "pos-sales-context-button";
-    updateButton.textContent = "Update Tanggal";
-    form.appendChild(updateButton);
-
-    fragment.appendChild(form);
 }
 
 function appendPosSalesContextMeta(fragment, label) {
@@ -553,7 +518,10 @@ function buildPosSalesContextMenu(row) {
         appendPosSalesContextLink(fragment, "Edit Transaksi", editUrl);
     }
     if (canEditSaleDate && saleId) {
-        appendPosSalesContextDateForm(fragment, row, saleId, receiptNo, currentSaleDate);
+        appendPosSalesContextButton(fragment, "Edit Tanggal Transaksi", () => {
+            closePosSalesContextMenu();
+            promptPosSaleDateUpdate(row, saleId, receiptNo, currentSaleDate);
+        });
     }
     appendPosSalesContextLink(fragment, "PDF Nota", pdfUrl, { newTab: true });
     appendPosSalesContextLink(fragment, "Preview Nota", previewUrl, { newTab: true });
@@ -584,6 +552,11 @@ function buildPosSalesContextMenu(row) {
         form.method = "POST";
         form.action = paymentMethodUrl || `/kasir/sale/${saleId}/payment-method`;
         form.className = "pos-sales-context-form";
+        form.addEventListener("submit", (event) => {
+            if (!window.confirm(`Ganti metode pembayaran untuk transaksi ${receiptNo || "-"}?`)) {
+                event.preventDefault();
+            }
+        });
 
         if (returnUrl) {
             const input = document.createElement("input");
@@ -662,12 +635,31 @@ async function submitPosSaleDateUpdate(row, saleId, nextSaleDate) {
     }
     if (row) {
         row.dataset.saleDate = String(data.sale_date || nextSaleDate || "");
-        const dateLabel = row.querySelector(".pos-sales-log-date-label");
-        if (dateLabel) {
-            dateLabel.textContent = String(data.sale_date || nextSaleDate || "-");
-        }
     }
-    notifyPosSalesLog(data.message || "Tanggal transaksi berhasil diperbarui.");
+    window.alert(data.message || "Tanggal transaksi berhasil diperbarui.");
+    window.location.reload();
+}
+
+function promptPosSaleDateUpdate(row, saleId, receiptNo, currentSaleDate) {
+    const nextSaleDate = String(
+        window.prompt(
+            `Perbaiki tanggal transaksi ${receiptNo || "-"}.\nPakai format YYYY-MM-DD.`,
+            currentSaleDate || ""
+        ) || ""
+    ).trim();
+    if (!nextSaleDate) {
+        return;
+    }
+    if (nextSaleDate === currentSaleDate) {
+        window.alert(`Tanggal transaksi ${receiptNo || "-"} sudah ${currentSaleDate || "-"}.`);
+        return;
+    }
+    if (!window.confirm(`Ubah tanggal transaksi ${receiptNo || "-"} dari ${currentSaleDate || "-"} ke ${nextSaleDate}?`)) {
+        return;
+    }
+    submitPosSaleDateUpdate(row, saleId, nextSaleDate).catch((error) => {
+        window.alert(error.message || "Tanggal transaksi gagal diperbarui.");
+    });
 }
 
 document.addEventListener("contextmenu", (event) => {
@@ -716,118 +708,6 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("scroll", closePosSalesContextMenu, true);
 window.addEventListener("resize", closePosSalesContextMenu);
 
-let posSalesVoidDialogResolve = null;
-
-function ensurePosSalesVoidDialog() {
-    let dialog = document.getElementById("posSalesVoidDialog");
-    if (dialog) {
-        return dialog;
-    }
-
-    dialog = document.createElement("div");
-    dialog.id = "posSalesVoidDialog";
-    dialog.className = "picker-modal";
-    dialog.hidden = true;
-    dialog.innerHTML = `
-        <div class="picker-modal-backdrop" data-pos-sales-void-cancel></div>
-        <div class="picker-modal-panel" role="dialog" aria-modal="true" aria-labelledby="posSalesVoidDialogTitle">
-            <div class="section-title">
-                <div>
-                    <h2 id="posSalesVoidDialogTitle">Void Barang</h2>
-                    <p>Isi qty dan catatan void tanpa meninggalkan log penjualan.</p>
-                </div>
-                <button type="button" class="ghost-button" data-pos-sales-void-cancel>Tutup</button>
-            </div>
-            <div class="form-grid">
-                <div>
-                    <label for="posSalesVoidQtyInput">Qty Void</label>
-                    <input type="number" id="posSalesVoidQtyInput" min="1" step="1" inputmode="numeric">
-                    <small id="posSalesVoidQtyHelp" class="helper-text">Maksimal mengikuti qty aktif item.</small>
-                </div>
-                <div>
-                    <label for="posSalesVoidNoteInput">Catatan</label>
-                    <input type="text" id="posSalesVoidNoteInput" placeholder="Opsional">
-                </div>
-            </div>
-            <div id="posSalesVoidDialogError" class="helper-text stock-empty" role="alert" hidden></div>
-            <div class="split-actions picker-pagination">
-                <button type="button" class="danger-button" data-pos-sales-void-submit>Proses Void</button>
-                <button type="button" class="ghost-button" data-pos-sales-void-cancel>Batal</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(dialog);
-    dialog.querySelectorAll("[data-pos-sales-void-cancel]").forEach((button) => {
-        button.addEventListener("click", () => closePosSalesVoidDialog(null));
-    });
-    dialog.querySelector("[data-pos-sales-void-submit]")?.addEventListener("click", () => {
-        const qtyInput = dialog.querySelector("#posSalesVoidQtyInput");
-        const noteInput = dialog.querySelector("#posSalesVoidNoteInput");
-        const errorBox = dialog.querySelector("#posSalesVoidDialogError");
-        const maxQty = Number(qtyInput?.max || 0);
-        const voidQty = Number(qtyInput?.value || 0);
-        if (!Number.isFinite(voidQty) || voidQty <= 0 || voidQty > maxQty) {
-            if (errorBox) {
-                errorBox.textContent = `Qty void tidak valid. Maksimal ${maxQty}.`;
-                errorBox.hidden = false;
-            }
-            qtyInput?.focus();
-            return;
-        }
-        closePosSalesVoidDialog({
-            voidQty,
-            voidNote: String(noteInput?.value || ""),
-        });
-    });
-    dialog.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") {
-            closePosSalesVoidDialog(null);
-        }
-    });
-    return dialog;
-}
-
-function closePosSalesVoidDialog(payload) {
-    const dialog = document.getElementById("posSalesVoidDialog");
-    if (dialog) {
-        dialog.hidden = true;
-    }
-    if (posSalesVoidDialogResolve) {
-        posSalesVoidDialogResolve(payload);
-        posSalesVoidDialogResolve = null;
-    }
-}
-
-function requestPosSalesVoidDetails(maxQty) {
-    const dialog = ensurePosSalesVoidDialog();
-    const qtyInput = dialog.querySelector("#posSalesVoidQtyInput");
-    const noteInput = dialog.querySelector("#posSalesVoidNoteInput");
-    const helpText = dialog.querySelector("#posSalesVoidQtyHelp");
-    const errorBox = dialog.querySelector("#posSalesVoidDialogError");
-    if (qtyInput) {
-        qtyInput.max = String(maxQty);
-        qtyInput.value = String(maxQty);
-    }
-    if (noteInput) {
-        noteInput.value = "";
-    }
-    if (helpText) {
-        helpText.textContent = `Maksimal ${maxQty} qty aktif.`;
-    }
-    if (errorBox) {
-        errorBox.textContent = "";
-        errorBox.hidden = true;
-    }
-    dialog.hidden = false;
-    window.requestAnimationFrame(() => {
-        qtyInput?.focus();
-        qtyInput?.select();
-    });
-    return new Promise((resolve) => {
-        posSalesVoidDialogResolve = resolve;
-    });
-}
-
 async function submitPosVoidFromLog(button) {
     if (!(button instanceof HTMLButtonElement)) {
         return;
@@ -839,12 +719,18 @@ async function submitPosVoidFromLog(button) {
         return;
     }
 
-    const voidDetails = await requestPosSalesVoidDetails(maxQty);
-    if (!voidDetails) {
+    const requestedQty = window.prompt(`Void berapa qty? Maksimal ${maxQty}.`, String(maxQty));
+    if (requestedQty === null) {
         return;
     }
 
-    const { voidQty, voidNote } = voidDetails;
+    const voidQty = Number(requestedQty);
+    if (!Number.isFinite(voidQty) || voidQty <= 0 || voidQty > maxQty) {
+        window.alert(`Qty void tidak valid. Maksimal ${maxQty}.`);
+        return;
+    }
+
+    const voidNote = window.prompt("Catatan void opsional", "") ?? "";
     button.disabled = true;
     const originalText = button.textContent;
     button.textContent = "Memproses...";
@@ -865,23 +751,10 @@ async function submitPosVoidFromLog(button) {
         if (!response.ok || data.status !== "success") {
             throw new Error(data.message || "Void item gagal diproses.");
         }
-        const itemLine = button.closest(".pos-sales-log-itemline");
-        const nextActiveQty = Number(data.active_qty || 0);
-        if (nextActiveQty <= 0) {
-            button.remove();
-            if (itemLine) {
-                itemLine.dataset.itemStatus = "voided";
-                const note = document.createElement("div");
-                note.className = "helper-text";
-                note.textContent = `Void bertambah ${voidQty}. Item ini sudah tidak punya qty aktif.`;
-                itemLine.appendChild(note);
-            }
-        } else {
-            button.dataset.posVoidableQty = String(nextActiveQty);
-        }
-        notifyPosSalesLog(data.message || "Void item berhasil diproses.");
+        window.alert(data.message || "Void item berhasil diproses.");
+        window.location.reload();
     } catch (error) {
-        notifyPosSalesLog(error.message || "Void item gagal diproses.");
+        window.alert(error.message || "Void item gagal diproses.");
     } finally {
         button.disabled = false;
         button.textContent = originalText;
@@ -896,6 +769,13 @@ async function submitPosReceiptResendFromLog(button) {
     const saleId = Number(button.dataset.posResendReceiptSaleId || 0);
     const receiptNo = String(button.dataset.posResendReceiptNo || "").trim();
     if (!saleId) {
+        return;
+    }
+
+    const confirmed = window.confirm(
+        `Kirim ulang nota WA untuk ${receiptNo || "transaksi ini"}?`
+    );
+    if (!confirmed) {
         return;
     }
 
@@ -917,14 +797,10 @@ async function submitPosReceiptResendFromLog(button) {
 
         const statusLabel = `Status: ${String(data.receipt_whatsapp_status || "-").toUpperCase()}`;
         const errorInfo = data.receipt_whatsapp_error ? `\nDetail: ${data.receipt_whatsapp_error}` : "";
-        const row = document.querySelector(`[data-pos-sales-log-row='1'][data-sale-id="${saleId}"]`);
-        if (row) {
-            row.dataset.waStatus = String(data.receipt_whatsapp_status || "");
-            row.dataset.waError = String(data.receipt_whatsapp_error || "");
-        }
-        notifyPosSalesLog(`${data.message}\n${statusLabel}${errorInfo}`);
+        window.alert(`${data.message}\n${statusLabel}${errorInfo}`);
+        window.location.reload();
     } catch (error) {
-        notifyPosSalesLog(error.message || "Kirim ulang nota WA gagal diproses.");
+        window.alert(error.message || "Kirim ulang nota WA gagal diproses.");
     } finally {
         button.disabled = false;
         button.textContent = originalText;
@@ -967,8 +843,7 @@ async function submitPosArchiveFromLog(row) {
         if (!response.ok || data.status !== "success") {
             throw new Error(data.message || "Transaksi gagal dihapus ke Hidden Archive.");
         }
-        row.remove();
-        notifyPosSalesLog(data.message || "Transaksi dipindahkan ke Hidden Archive.");
+        window.location.reload();
     } catch (error) {
         window.alert(error.message || "Transaksi gagal dihapus ke Hidden Archive.");
     }

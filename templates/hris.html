@@ -1,15 +1,64 @@
 ﻿{% extends "base.html" %}
 
 {% block title %}HRIS | ERP-CV.BJAS{% endblock %}
+{% block body_class %}internal-module-shell{% endblock %}
 {% block eyebrow %}HRIS{% endblock %}
 {% block page_title %}{% if selected_module.slug == "dashboard" %}Dashboard HRIS{% else %}HRIS Integration Hub{% endif %}{% endblock %}
 {% block page_subtitle %}{% if selected_module.slug == "dashboard" %}Dashboard ini menyorot announcement aktif dan snapshot jadwal tim lintas gudang yang sudah tersambung ke data HRIS. Semua user login bisa memantau ringkasannya, sementara pengaturan detail tetap dipegang HR dan Super Admin.{% else %}Landing page ini menyiapkan jalur integrasi HRIS berdasarkan struktur modul Horilla 1.0, sehingga pengembangan berikutnya bisa dilakukan modul per modul tanpa merusak flow WMS yang sudah berjalan.{% endif %}{% endblock %}
 {% block page_content_class %}hris-clean-shell{% endblock %}
 
+{% block extra_head %}
+{{ super() }}
+<link rel="stylesheet" href="{{ asset_url('css/internal_portal_zip.css') }}?v={{ app_version|default('20260520', true) }}">
+{% endblock %}
+
+{% block page_header %}
+<header class="internal-app-topbar module-header" aria-label="Navigasi modul internal">
+    <a class="brand internal-topbar-left" href="/workspace/" aria-label="Kembali ke CV BJAS Internal Portal">
+        <span class="brand-logo is-fallback internal-brand-pill" aria-hidden="true">
+            <span class="brand-fallback">CV BJAS</span>
+        </span>
+        <span class="brand-divider internal-topbar-separator" aria-hidden="true"></span>
+        <span class="brand-logo brand-logo-wide is-fallback internal-brand-pill" aria-hidden="true">
+            <span class="brand-fallback">Mataram Sports</span>
+        </span>
+    </a>
+    <a href="/workspace/" class="header-center-logo internal-topbar-logo" aria-label="Pusat aplikasi CV BJAS">
+        <img src="{{ asset_url('assets/internal_portal/header-center-logo.svg') }}" alt="CV Berkah Jaya Abadi Sports">
+    </a>
+    {% include "partials/internal_topbar_actions.html" %}
+</header>
+<nav class="internal-breadcrumb breadcrumb-bar" aria-label="Breadcrumb">
+    <ol class="breadcrumb-list">
+        <li><a href="/workspace/">Beranda</a></li>
+        <li aria-current="page">{{ selected_module.label }}</li>
+    </ol>
+</nav>
+{% endblock %}
+
 {% block content %}
-<details class="table-box hris-module-disclosure">
-    <summary class="hris-module-summary">
+{% set hris_module_icon_map = {
+    "dashboard": "⌂",
+    "employee": "👥",
+    "leave": "📝",
+    "approval": "✓",
+    "payroll": "💳",
+    "recruitment": "🔎",
+    "onboarding": "📄",
+    "offboarding": "📄",
+    "pms": "📊",
+    "helpdesk": "🎧",
+    "report": "📊",
+    "biometric": "🕒",
+    "announcement": "📣",
+    "documents": "📄",
+} %}
+<div class="internal-module-layout module-layout">
+<aside class="internal-module-nav information-module-nav info-sidebar">
+<details class="table-box hris-module-disclosure information-sidebar-card" open>
+    <summary class="hris-module-summary information-sidebar-head sidebar-title">
         <div class="hris-module-summary-copy">
+            <span>Modul</span>
             <strong>{{ selected_module.label }}</strong>
             <span class="hris-module-summary-note">{{ modules|length }} modul</span>
         </div>
@@ -19,19 +68,30 @@
         </div>
     </summary>
     <div class="hris-module-summary-body">
-        <div class="cards hris-module-grid">
+        <div class="cards hris-module-grid sidebar-menu">
             {% for module in modules %}
             <a
                 href="/hris/{{ module.slug }}"
-                class="card hris-module-card {% if selected_module.slug == module.slug %}active{% endif %}"
+                class="card hris-module-card {% if selected_module.slug == module.slug %}active is-active {% endif %}sidebar-link"
             >
+                <span class="hris-module-nav-icon sidebar-icon" aria-hidden="true">{{ hris_module_icon_map.get(module.slug, "▦") }}</span>
                 <span class="badge">{{ module.status }}</span>
-                <h2>{{ module.label }}</h2>
+                <span class="hris-module-card-copy">
+                    <h2>{{ "Beranda" if module.slug == "dashboard" else module.label }}</h2>
+                    {% if module.slug == "documents" %}
+                    <small>SOP &amp; policy</small>
+                    {% elif module.slug == "announcement" %}
+                    <small>Memo internal</small>
+                    {% endif %}
+                </span>
             </a>
             {% endfor %}
         </div>
     </div>
 </details>
+</aside>
+<section class="internal-module-panel information-panel content-panel">
+<div class="sr-only">HRIS Integration Hub Dashboard HRIS</div>
 
 {% if selected_module.slug == "dashboard" %}
 <div class="summary">
@@ -1988,21 +2048,10 @@
             {% endif %}
             <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
                 <div>
-                    <strong style="display:block; color:#6a4d1f; margin-bottom:4px;">Generate / Lengkapi Bank Soal Retail Olahraga</strong>
-                    <p style="margin:0; color:#7d6b54; line-height:1.6;">Bisa diklik ulang. Sistem hanya menambah soal yang belum ada, termasuk TPA dan Studi Kasus, tanpa membuat duplikat.</p>
+                    <strong style="display:block; color:#6a4d1f; margin-bottom:4px;">Generate Bank Soal Retail Olahraga</strong>
+                    <p style="margin:0; color:#7d6b54; line-height:1.6;">Sekali klik untuk mengisi bank soal yang lebih relevan ke toko olahraga: sepatu, apparel, stok, promo, layanan pelanggan, dan operasional floor.</p>
                 </div>
-                <div style="display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap;">
-                    <label style="display:grid; gap:6px; margin:0; min-width:230px; color:#6a4d1f;">
-                        Paket soal
-                        <select name="test_type">
-                            <option value="all">Semua jenis tes</option>
-                            <option value="basic">Tes Kemampuan Dasar</option>
-                            <option value="academic">Tes Potensi Akademik</option>
-                            <option value="case_study">Studi Kasus</option>
-                        </select>
-                    </label>
-                    <button type="submit" style="min-width:240px;">Generate Soal</button>
-                </div>
+                <button type="submit" style="min-width:240px;">Isi Bank Soal Retail Olahraga</button>
             </div>
         </form>
         <form method="POST" action="/hris/recruitment/question/add">
@@ -2740,14 +2789,9 @@
                             <label>Link Tes Kandidat</label>
                             {% if candidate.assessment_code %}
                             <a class="ghost-button" href="{{ url_for('career.assessment', code=candidate.assessment_code) }}" target="_blank" rel="noopener" data-recruitment-assessment-link>Buka Halaman Tes</a>
-                            {% if candidate.assessment_whatsapp_url %}
-                            <a class="ghost-button" href="{{ candidate.assessment_whatsapp_url }}" target="_blank" rel="noopener" data-recruitment-assessment-wa-link>Kirim via WhatsApp</a>
-                            {% else %}
-                            <span class="helper-text" data-recruitment-assessment-wa-empty>Nomor WhatsApp kandidat belum tersedia.</span>
-                            {% endif %}
                             <span class="helper-text" data-recruitment-assessment-meta>Masa berlaku: {{ candidate.assessment_expires_at_label }}. Durasi: {{ candidate.assessment_duration_label }}.</span>
                             {% else %}
-                            <span class="helper-text" data-recruitment-assessment-meta>Kode tes akan dibuat dan bisa dikirim lewat email atau WhatsApp saat kandidat disetujui lanjut ke tahap tes. Kandidat akan menjalani 3 sesi: kemampuan dasar, potensi akademik, dan studi kasus.</span>
+                            <span class="helper-text" data-recruitment-assessment-meta>Kode tes akan dibuat dan dikirim email saat kandidat disetujui lanjut ke tahap tes. Kandidat akan menjalani 3 sesi: kemampuan dasar, potensi akademik, dan studi kasus.</span>
                             {% endif %}
                             <div class="split-actions recruitment-quick-actions">
                                 <button type="submit" name="decision_action" value="approve_assessment" data-recruitment-quick-action>
@@ -3039,8 +3083,6 @@
             return;
         }
         let assessmentLink = assessmentAccess.querySelector("[data-recruitment-assessment-link]");
-        let assessmentWaLink = assessmentAccess.querySelector("[data-recruitment-assessment-wa-link]");
-        let assessmentWaEmpty = assessmentAccess.querySelector("[data-recruitment-assessment-wa-empty]");
         let assessmentMeta = assessmentAccess.querySelector("[data-recruitment-assessment-meta]");
         if (!assessmentMeta) {
             assessmentMeta = document.createElement("span");
@@ -3061,29 +3103,6 @@
                 assessmentAccess.insertBefore(assessmentLink, assessmentMeta || actions || null);
             }
             assessmentLink.href = payload.assessment_url;
-            if (payload.assessment_whatsapp_url) {
-                if (!assessmentWaLink) {
-                    assessmentWaLink = document.createElement("a");
-                    assessmentWaLink.className = "ghost-button";
-                    assessmentWaLink.target = "_blank";
-                    assessmentWaLink.rel = "noopener";
-                    assessmentWaLink.setAttribute("data-recruitment-assessment-wa-link", "1");
-                    assessmentWaLink.textContent = "Kirim via WhatsApp";
-                    assessmentAccess.insertBefore(assessmentWaLink, assessmentMeta || null);
-                }
-                assessmentWaLink.href = payload.assessment_whatsapp_url;
-                if (assessmentWaEmpty) {
-                    assessmentWaEmpty.remove();
-                }
-            } else if (!assessmentWaLink && !assessmentWaEmpty) {
-                assessmentWaEmpty = document.createElement("span");
-                assessmentWaEmpty.className = "helper-text";
-                assessmentWaEmpty.setAttribute("data-recruitment-assessment-wa-empty", "1");
-                assessmentWaEmpty.textContent = "Nomor WhatsApp kandidat belum tersedia.";
-                assessmentAccess.insertBefore(assessmentWaEmpty, assessmentMeta || null);
-            } else if (assessmentWaLink && !payload.assessment_whatsapp_url) {
-                assessmentWaLink.remove();
-            }
             assessmentMeta.textContent = `Masa berlaku: ${payload.assessment_expires_at_label || '-'}. Durasi: ${payload.assessment_duration_label || 'Tanpa batas waktu'}.`;
         }
     };
@@ -4202,14 +4221,14 @@
     {% if kpi_reports %}
         <div class="stack-scroll-list">
             {% for report in kpi_reports %}
-            <div class="box stack-scroll-card" style="margin-bottom:0;" data-report-review-card="pms" data-report-status="{{ report.status }}">
+            <div class="box stack-scroll-card" style="margin-bottom:0;">
                 <div class="section-title">
                     <div>
                         <h3>{{ report.full_name }}</h3>
                         <p>{{ report.employee_code }} | {{ report.warehouse_name or '-' }} | {{ report.period_label_human }} {{ report.week_key }} | {{ report.template_name }}</p>
                     </div>
                     <div class="report-status-stack">
-                        <span class="badge {{ 'green' if report.status == 'reviewed' else 'orange' if report.status == 'submitted' else 'red' }}" data-report-review-status-badge>{{ report.status_label }}</span>
+                        <span class="badge {{ 'green' if report.status == 'reviewed' else 'orange' if report.status == 'submitted' else 'red' }}">{{ report.status_label }}</span>
                         <span class="badge">{{ report.score_label }} / {{ "%.2f"|format(report.minimum_pass_score or 0) }}</span>
                         <span class="badge">{{ report.completion_percent }}%</span>
                     </div>
@@ -4248,10 +4267,12 @@
                         <label>Catatan Koordinasi</label>
                         <div class="empty-state report-portal-text">{{ report.coordination_note or "-" }}</div>
                     </div>
+                    {% if report.review_note %}
                     <div style="grid-column: 1 / -1;">
                         <label>Catatan Review HR</label>
-                        <div class="empty-state report-portal-text" data-report-review-note>{{ report.review_note or "Belum ada catatan review." }}</div>
+                        <div class="empty-state report-portal-text">{{ report.review_note }}</div>
                     </div>
+                    {% endif %}
                 </div>
                 <div class="table-box" style="margin-top:16px;">
                     <table>
@@ -4280,7 +4301,7 @@
                     </table>
                 </div>
                 {% if can_manage_performance %}
-                <form method="POST" action="/hris/pms/report/{{ report.id }}/review" style="margin-top:16px;" data-report-review-form="pms">
+                <form method="POST" action="/hris/pms/report/{{ report.id }}/review" style="margin-top:16px;">
                     <input type="hidden" name="return_to" value="{{ report_return_to }}">
                     <div class="form-grid">
                         <div>
@@ -4299,7 +4320,6 @@
                     <div class="split-actions" style="margin-top:16px;">
                         <button type="submit">Simpan Review KPI</button>
                     </div>
-                    <small class="biometric-inline-feedback" data-report-review-feedback></small>
                 </form>
                 {% endif %}
             </div>
@@ -4714,7 +4734,7 @@
 </div>
 
 {% macro render_report_feed_panel(panel_title, panel_description, reports, empty_message, can_manage_report, report_return_to) -%}
-<details class="table-box report-feed-panel panel-disclosure" data-report-review-panel>
+<details class="table-box report-feed-panel panel-disclosure">
     <summary class="panel-summary">
         <div class="section-title">
             <div>
@@ -4723,7 +4743,7 @@
             </div>
         </div>
         <div class="panel-summary-meta">
-            <span class="badge" data-report-review-panel-count>{{ reports|length }} item</span>
+            <span class="badge">{{ reports|length }} item</span>
             <span class="panel-summary-state">Buka Log</span>
         </div>
     </summary>
@@ -4731,14 +4751,14 @@
         {% if reports %}
         <div class="stack-scroll-list">
             {% for report in reports %}
-            <div class="box stack-scroll-card" style="margin-bottom:0;" data-report-review-card data-report-status="{{ report.status }}">
+            <div class="box stack-scroll-card" style="margin-bottom:0;">
                 <div class="section-title">
                     <div>
                         <h3>{{ report.title }}</h3>
                         <p>{{ report.report_date }} • {{ report.report_type_label }} • {{ report.display_name }} • {{ report.warehouse_name or "-" }}</p>
                     </div>
                     <div class="report-review-badges">
-                        <span class="badge {{ 'green' if report.status in ['reviewed', 'closed'] else 'orange' if report.status in ['submitted', 'follow_up'] else 'red' }}" data-report-review-status-badge>{{ report.status_label }}</span>
+                        <span class="badge">{{ report.status_label }}</span>
                         <span class="badge">{{ report.username or "-" }}</span>
                     </div>
                 </div>
@@ -4787,7 +4807,7 @@
                     </div>
                     {% if can_manage_report %}
                     <div style="grid-column: 1 / -1;">
-                        <form method="POST" action="/hris/report/daily-live/update/{{ report.id }}" data-report-review-form="daily-live">
+                        <form method="POST" action="/hris/report/daily-live/update/{{ report.id }}">
                             <div class="form-grid">
                                 <div>
                                     <label>Status HR</label>
@@ -4807,13 +4827,12 @@
                             <div class="split-actions" style="margin-top:16px;">
                                 <button type="submit">Simpan Review</button>
                             </div>
-                            <small class="helper-text" data-report-review-feedback aria-live="polite"></small>
                         </form>
                     </div>
                     {% else %}
                     <div style="grid-column: 1 / -1;">
                         <label>Catatan HR</label>
-                        <div class="empty-state report-review-text" data-report-review-note>{{ report.hr_note or "Belum ada catatan review." }}</div>
+                        <div class="empty-state report-review-text">{{ report.hr_note or "Belum ada catatan review." }}</div>
                     </div>
                     {% endif %}
                 </div>
@@ -5239,7 +5258,7 @@
             <div>
                 <label>Durasi Dipakai (menit)</label>
                 <input type="number" name="minutes_used" min="1" step="1" placeholder="Contoh: 60" required>
-                <small class="helper-text">Masukkan menit yang dipakai. Pemakaian reguler bebas selama saldo staff masih cukup. Kalau pilih uangkan semua, nilai ini otomatis diabaikan saat backend memproses request. Kalau pilih pulang cepat / utang lembur, request tetap boleh masuk meski saldo belum cukup.</small>
+                <small class="helper-text">Masukkan menit yang dipakai. Pemakaian reguler maksimal 2 jam per minggu. Kalau pilih uangkan semua, nilai ini otomatis diabaikan saat backend memproses request. Kalau pilih pulang cepat / utang lembur, request tetap boleh masuk meski saldo belum cukup.</small>
             </div>
             <div>
                 <label>Mode Pemakaian</label>
@@ -5411,7 +5430,7 @@
                 <td class="biometric-recap-warehouse-cell">{{ row.warehouse_name or '-' }}</td>
                 <td class="biometric-recap-shift-cell">
                     {% if row.can_edit_shift %}
-                    <form method="POST" action="/hris/biometric/attendance-shift" class="biometric-attendance-status-form" data-biometric-inline-form="shift">
+                    <form method="POST" action="/hris/biometric/attendance-shift" class="biometric-attendance-status-form">
                         <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
                         <input type="hidden" name="attendance_date" value="{{ row.attendance_date }}">
                         <input type="hidden" name="return_to" value="{{ report_return_to }}">
@@ -5419,8 +5438,7 @@
                             name="shift_code"
                             class="biometric-attendance-status-select"
                             aria-label="Ubah shift {{ row.full_name }}"
-                            data-biometric-inline-select
-                            data-current-value="{{ row.shift_code or '' }}"
+                            onchange="if (this.form.requestSubmit) { this.form.requestSubmit(); } else { this.form.submit(); }"
                         >
                             {% if not row.shift_code %}
                             <option value="" selected disabled>Pilih shift</option>
@@ -5429,7 +5447,6 @@
                             <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
                             {% endfor %}
                         </select>
-                        <small class="helper-text biometric-inline-feedback" data-biometric-inline-feedback aria-live="polite"></small>
                     </form>
                     {% else %}
                     {{ row.shift_display_label }}
@@ -5443,7 +5460,7 @@
                 </td>
                 <td class="biometric-recap-status-cell">
                     {% if can_adjust_biometric_status %}
-                    <form method="POST" action="/hris/biometric/attendance-status" class="biometric-attendance-status-form" data-biometric-inline-form="status">
+                    <form method="POST" action="/hris/biometric/attendance-status" class="biometric-attendance-status-form">
                         <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
                         <input type="hidden" name="attendance_date" value="{{ row.attendance_date }}">
                         <input type="hidden" name="return_to" value="{{ report_return_to }}">
@@ -5451,18 +5468,18 @@
                             name="status"
                             class="biometric-attendance-status-select"
                             aria-label="Ubah status absen {{ row.full_name }}"
-                            data-biometric-inline-select
-                            data-current-value="{{ row.attendance_status_value }}"
+                            onchange="if (this.form.requestSubmit) { this.form.requestSubmit(); } else { this.form.submit(); }"
                         >
                             <option value="present" {% if row.attendance_status_value == 'present' %}selected{% endif %}>Present</option>
                             <option value="late" {% if row.attendance_status_value == 'late' %}selected{% endif %}>Late</option>
                         </select>
-                        <small class="helper-text biometric-inline-feedback" data-biometric-inline-feedback aria-live="polite"></small>
                     </form>
                     {% else %}
                     <span class="badge {{ row.attendance_status_badge }}">{{ row.attendance_status_label }}</span>
                     {% endif %}
-                    <div data-biometric-status-override-note {% if not row.status_override_active %}hidden{% endif %}><small class="helper-text">Manual HR</small></div>
+                    {% if row.status_override_active %}
+                    <div><small class="helper-text">Manual HR</small></div>
+                    {% endif %}
                     {% if can_adjust_biometric_status and row.attendance_status_label not in ['Present', 'Late'] %}
                     <div><small class="helper-text">{{ row.attendance_status_label }}</small></div>
                     {% endif %}
@@ -6250,7 +6267,6 @@
                                 <canvas data-document-signature-canvas aria-label="Area tanda tangan digital"></canvas>
                             </div>
                             <p class="hris-document-sign-help">Gunakan mouse atau sentuhan layar untuk menggambar tanda tangan. Pastikan lampiran dokumen sudah diupload sebelum menyimpan pengesahan.</p>
-                            <p class="hris-document-sign-feedback" data-document-signature-feedback hidden>Tanda tangan digital belum diisi.</p>
                             <div class="split-actions">
                                 <button type="button" class="ghost-button" data-document-signature-clear>Ulangi Tanda Tangan</button>
                                 <button type="submit" {% if not document.attachment_url %}disabled{% endif %}>Simpan Pengesahan</button>
@@ -6365,6 +6381,8 @@
     </div>
 </details>
 {% endif %}
+</section>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -6426,7 +6444,6 @@ document.addEventListener("DOMContentLoaded", function () {
             const form = root.closest("form");
             const input = form ? form.querySelector("[data-document-signature-input]") : null;
             const clearButton = form ? form.querySelector("[data-document-signature-clear]") : null;
-            const feedback = form ? form.querySelector("[data-document-signature-feedback]") : null;
             if (!canvas || !form || !input) {
                 return;
             }
@@ -6483,9 +6500,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
                 input.value = canvas.toDataURL("image/png");
                 root.dataset.signatureReady = "1";
-                if (feedback) {
-                    feedback.hidden = true;
-                }
             };
 
             const startDrawing = function (event) {
@@ -6529,9 +6543,6 @@ document.addEventListener("DOMContentLoaded", function () {
                     input.value = "";
                     prepareCanvas("");
                     root.dataset.signatureReady = "0";
-                    if (feedback) {
-                        feedback.hidden = true;
-                    }
                 });
             }
 
@@ -6540,11 +6551,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     return;
                 }
                 event.preventDefault();
-                if (feedback) {
-                    feedback.textContent = "Tanda tangan digital belum diisi. Tulis tanda tangan di area kanvas dulu, lalu simpan pengesahan.";
-                    feedback.hidden = false;
-                    feedback.scrollIntoView({ behavior: "smooth", block: "center" });
-                }
+                window.alert("Tanda tangan digital belum diisi.");
             });
 
             window.addEventListener("resize", function () {
@@ -6553,364 +6560,8 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     };
 
-    const initBiometricInlineForms = function () {
-        const forms = document.querySelectorAll("[data-biometric-inline-form]");
-        if (!forms.length) {
-            return;
-        }
-        const quickMenu = document.createElement("div");
-        quickMenu.className = "biometric-quick-action-menu";
-        quickMenu.setAttribute("data-biometric-quick-menu", "1");
-        quickMenu.hidden = true;
-        document.body.appendChild(quickMenu);
-        let activeQuickForm = null;
-        let activeQuickSelect = null;
-
-        const setFeedback = function (form, message, isError) {
-            const feedback = form.querySelector("[data-biometric-inline-feedback]");
-            if (!feedback) {
-                return;
-            }
-            feedback.textContent = message || "";
-            feedback.classList.toggle("biometric-inline-feedback-error", Boolean(isError));
-        };
-
-        const clearFeedbackLater = function (form) {
-            window.setTimeout(function () {
-                const feedback = form.querySelector("[data-biometric-inline-feedback]");
-                if (feedback && !feedback.classList.contains("biometric-inline-feedback-error")) {
-                    feedback.textContent = "";
-                }
-            }, 2200);
-        };
-
-        const syncStatusNote = function (form, payload) {
-            if (form.getAttribute("data-biometric-inline-form") !== "status") {
-                return;
-            }
-            const cell = form.closest(".biometric-recap-status-cell");
-            const note = cell ? cell.querySelector("[data-biometric-status-override-note]") : null;
-            if (!note || payload.status_override_active === undefined) {
-                return;
-            }
-            note.hidden = !payload.status_override_active;
-        };
-
-        const closeQuickMenu = function () {
-            quickMenu.hidden = true;
-            quickMenu.innerHTML = "";
-            activeQuickForm = null;
-            activeQuickSelect = null;
-        };
-
-        const positionQuickMenu = function (event) {
-            quickMenu.hidden = false;
-            const menuRect = quickMenu.getBoundingClientRect();
-            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-            const x = Math.min(event.clientX, Math.max(12, viewportWidth - menuRect.width - 12));
-            const y = Math.min(event.clientY, Math.max(12, viewportHeight - menuRect.height - 12));
-            quickMenu.style.left = Math.max(12, x) + "px";
-            quickMenu.style.top = Math.max(12, y) + "px";
-        };
-
-        const getQuickOptions = function (select) {
-            return Array.from(select.options || [])
-                .filter(function (option) {
-                    return option.value && !option.disabled;
-                })
-                .map(function (option) {
-                    return {
-                        value: option.value,
-                        label: (option.textContent || option.value).trim(),
-                        selected: option.selected,
-                    };
-                });
-        };
-
-        const renderQuickMenu = function (form, select, event) {
-            const options = getQuickOptions(select);
-            if (!options.length) {
-                return;
-            }
-            event.preventDefault();
-            activeQuickForm = form;
-            activeQuickSelect = select;
-            quickMenu.innerHTML = "";
-            options.forEach(function (option) {
-                const button = document.createElement("button");
-                button.type = "button";
-                button.className = "biometric-quick-action-button";
-                button.dataset.biometricQuickValue = option.value;
-                button.textContent = option.label;
-                if (option.selected) {
-                    button.setAttribute("aria-current", "true");
-                }
-                quickMenu.appendChild(button);
-            });
-            positionQuickMenu(event);
-            const firstButton = quickMenu.querySelector("button");
-            if (firstButton) {
-                firstButton.focus({ preventScroll: true });
-            }
-        };
-
-        const submitInlineForm = async function (form, select) {
-            const previousValue = select.dataset.currentValue || select.value || "";
-            const formData = new FormData(form);
-            formData.set("async", "1");
-            select.disabled = true;
-            form.dataset.state = "saving";
-            setFeedback(form, "Menyimpan...", false);
-
-            try {
-                const response = await fetch(form.action, {
-                    method: "POST",
-                    headers: {
-                        "X-Requested-With": "XMLHttpRequest",
-                        "Accept": "application/json"
-                    },
-                    body: formData,
-                    credentials: "same-origin"
-                });
-                const payload = await response.json().catch(function () {
-                    return {};
-                });
-                if (!response.ok || payload.ok !== true) {
-                    throw new Error(payload.message || "Perubahan belum tersimpan.");
-                }
-                select.dataset.currentValue = payload.shift_code || payload.status_value || select.value || "";
-                syncStatusNote(form, payload);
-                form.dataset.state = "saved";
-                setFeedback(form, payload.message || "Tersimpan.", false);
-                clearFeedbackLater(form);
-            } catch (error) {
-                select.value = previousValue;
-                form.dataset.state = "error";
-                setFeedback(form, error.message || "Gagal menyimpan.", true);
-            } finally {
-                select.disabled = false;
-            }
-        };
-
-        quickMenu.addEventListener("click", function (event) {
-            const button = event.target.closest("[data-biometric-quick-value]");
-            if (!button || !activeQuickForm || !activeQuickSelect) {
-                return;
-            }
-            const nextValue = button.dataset.biometricQuickValue || "";
-            if (!nextValue || activeQuickSelect.value === nextValue) {
-                closeQuickMenu();
-                return;
-            }
-            activeQuickSelect.value = nextValue;
-            submitInlineForm(activeQuickForm, activeQuickSelect);
-            closeQuickMenu();
-        });
-
-        quickMenu.addEventListener("keydown", function (event) {
-            if (event.key === "Escape") {
-                closeQuickMenu();
-            }
-        });
-
-        forms.forEach(function (form) {
-            const select = form.querySelector("select[data-biometric-inline-select]");
-            if (!select) {
-                return;
-            }
-            select.dataset.currentValue = select.dataset.currentValue || select.value || "";
-            form.addEventListener("submit", function (event) {
-                event.preventDefault();
-                submitInlineForm(form, select);
-            });
-            select.addEventListener("change", function () {
-                submitInlineForm(form, select);
-            });
-            form.addEventListener("contextmenu", function (event) {
-                renderQuickMenu(form, select, event);
-            });
-            select.addEventListener("keydown", function (event) {
-                const isKeyboardMenu = event.key === "ContextMenu" || (event.shiftKey && event.key === "F10");
-                if (!isKeyboardMenu) {
-                    return;
-                }
-                const rect = select.getBoundingClientRect();
-                renderQuickMenu(form, select, {
-                    preventDefault: function () {
-                        event.preventDefault();
-                    },
-                    clientX: rect.left,
-                    clientY: rect.bottom + 6,
-                });
-            });
-        });
-        document.addEventListener("click", function (event) {
-            if (!quickMenu.hidden && !quickMenu.contains(event.target)) {
-                closeQuickMenu();
-            }
-        });
-        window.addEventListener("scroll", closeQuickMenu, true);
-        window.addEventListener("resize", closeQuickMenu);
-    };
-
-    const initReportReviewForms = function () {
-        const forms = document.querySelectorAll("[data-report-review-form]");
-        if (!forms.length) {
-            return;
-        }
-
-        const activeStatuses = new Set(["submitted", "follow_up"]);
-        const archivedStatuses = new Set(["reviewed", "closed"]);
-
-        const getSelectedStatusLabel = function (form, status) {
-            const select = form.querySelector('select[name="status"]');
-            if (!select) {
-                return status || "Updated";
-            }
-            const option = Array.from(select.options).find(function (item) {
-                return item.value === status;
-            }) || select.options[select.selectedIndex];
-            return option ? option.textContent.trim() : (status || "Updated");
-        };
-
-        const getStatusBadgeClass = function (status) {
-            if (archivedStatuses.has(status)) {
-                return "green";
-            }
-            if (activeStatuses.has(status)) {
-                return "orange";
-            }
-            return "red";
-        };
-
-        const setFeedback = function (form, message, isError) {
-            const feedback = form.querySelector("[data-report-review-feedback]");
-            if (!feedback) {
-                return;
-            }
-            feedback.textContent = message || "";
-            feedback.classList.toggle("biometric-inline-feedback-error", Boolean(isError));
-        };
-
-        const updatePanelCount = function (panel) {
-            if (!panel) {
-                return;
-            }
-            const cards = panel.querySelectorAll("[data-report-review-card]");
-            const countBadge = panel.querySelector("[data-report-review-panel-count]");
-            if (countBadge) {
-                countBadge.textContent = `${cards.length} item`;
-            }
-            if (cards.length > 0 || panel.querySelector("[data-report-review-empty]")) {
-                return;
-            }
-            const content = panel.querySelector(".panel-content");
-            if (!content) {
-                return;
-            }
-            const emptyState = document.createElement("div");
-            emptyState.className = "empty-state";
-            emptyState.setAttribute("data-report-review-empty", "1");
-            emptyState.textContent = "Semua report pada panel ini sudah diproses.";
-            content.appendChild(emptyState);
-        };
-
-        const shouldRemoveDailyCard = function (status) {
-            const filter = new URLSearchParams(window.location.search || "").get("daily_status") || "";
-            const normalizedFilter = filter.trim().toLowerCase();
-            const activeFilter = !normalizedFilter || normalizedFilter === "active";
-            if (activeFilter) {
-                return !activeStatuses.has(status);
-            }
-            if (normalizedFilter === "archived") {
-                return !archivedStatuses.has(status);
-            }
-            if (["submitted", "reviewed", "follow_up", "closed"].includes(normalizedFilter)) {
-                return normalizedFilter !== status;
-            }
-            return false;
-        };
-
-        forms.forEach(function (form) {
-            form.addEventListener("submit", async function (event) {
-                event.preventDefault();
-
-                const submitButton = event.submitter || form.querySelector('button[type="submit"]');
-                const originalText = submitButton ? submitButton.textContent : "";
-                const formData = new FormData(form);
-                formData.set("async", "1");
-                if (submitButton && submitButton.name) {
-                    formData.set(submitButton.name, submitButton.value || "");
-                }
-
-                if (submitButton) {
-                    submitButton.disabled = true;
-                    submitButton.textContent = "Menyimpan...";
-                }
-                form.dataset.state = "saving";
-                setFeedback(form, "Menyimpan review...", false);
-
-                try {
-                    const response = await fetch(form.action, {
-                        method: "POST",
-                        body: formData,
-                        headers: {
-                            "X-Requested-With": "XMLHttpRequest",
-                            "Accept": "application/json"
-                        },
-                        credentials: "same-origin"
-                    });
-                    const payload = await response.json().catch(function () {
-                        return {};
-                    });
-                    if (!response.ok || payload.ok !== true) {
-                        throw new Error(payload.message || "Review belum tersimpan.");
-                    }
-
-                    const status = String(payload.status || formData.get("status") || "").trim().toLowerCase();
-                    const card = form.closest("[data-report-review-card]");
-                    const statusBadge = card ? card.querySelector("[data-report-review-status-badge]") : null;
-                    if (card) {
-                        card.dataset.reportStatus = status;
-                    }
-                    if (statusBadge) {
-                        statusBadge.textContent = payload.status_label || getSelectedStatusLabel(form, status);
-                        statusBadge.classList.remove("green", "orange", "red");
-                        statusBadge.classList.add(getStatusBadgeClass(status));
-                    }
-                    const noteNode = card ? card.querySelector("[data-report-review-note]") : null;
-                    if (noteNode) {
-                        noteNode.textContent = payload.hr_note || "Belum ada catatan review.";
-                    }
-
-                    form.dataset.state = "saved";
-                    setFeedback(form, payload.message || "Review tersimpan.", false);
-
-                    if (form.getAttribute("data-report-review-form") === "daily-live" && shouldRemoveDailyCard(status) && card) {
-                        window.setTimeout(function () {
-                            const panel = card.closest("[data-report-review-panel]");
-                            card.remove();
-                            updatePanelCount(panel);
-                        }, 450);
-                    }
-                } catch (error) {
-                    form.dataset.state = "error";
-                    setFeedback(form, error.message || "Review gagal disimpan.", true);
-                } finally {
-                    if (submitButton) {
-                        submitButton.disabled = false;
-                        submitButton.textContent = originalText || "Simpan Review";
-                    }
-                }
-            });
-        });
-    };
-
     initBreakTimers();
     initDocumentSignaturePads();
-    initBiometricInlineForms();
-    initReportReviewForms();
 
     const initApprovalQueues = function () {
         const queues = document.querySelectorAll("[data-approval-queue]");

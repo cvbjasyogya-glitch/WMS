@@ -1,74 +1,169 @@
 {% extends "base.html" %}
 
 {% block title %}Pusat Modul | ERP-CV.BJAS{% endblock %}
-{% block eyebrow %}Launcher Kerja{% endblock %}
+{% block body_class %}internal-portal-shell{% endblock %}
+{% block eyebrow %}Aplikasi Internal{% endblock %}
 {% block page_title %}Pilih Area Kerja{% endblock %}
-{% block page_subtitle %}Setelah login, masuk dulu ke gateway yang lebih ringan dan mudah dipahami. Dari sini Anda bisa pilih modul kerja yang memang relevan dengan role dan gudang aktif.{% endblock %}
+{% block page_subtitle %}Pusat aplikasi CV BJAS{% endblock %}
 
-{% block page_actions %}
-<div class="split-actions workspace-gateway-actions">
-    <a href="/" class="btn-link">Buka Dashboard WMS</a>
-    <a href="/account/settings" class="ghost-button">Pengaturan Akun</a>
-</div>
+{% block extra_head %}
+{{ super() }}
+<link rel="stylesheet" href="{{ asset_url('css/internal_portal_zip.css') }}?v={{ app_version|default('20260520', true) }}">
+{% endblock %}
+
+{% block page_header %}
+<header class="site-header internal-app-topbar" aria-label="Navigasi portal internal">
+    <a class="brand internal-topbar-left" href="/workspace/" aria-label="CV BJAS Internal Portal">
+        <span class="brand-logo is-fallback internal-brand-pill" aria-hidden="true">
+            <span class="brand-fallback">CV BJAS</span>
+        </span>
+        <span class="brand-divider internal-topbar-separator" aria-hidden="true"></span>
+        <span class="brand-logo brand-logo-wide is-fallback internal-brand-pill" aria-hidden="true">
+            <span class="brand-fallback">Mataram Sports</span>
+        </span>
+    </a>
+    <div class="header-center-logo internal-topbar-logo" aria-label="Pusat aplikasi CV BJAS">
+        <img src="{{ asset_url('assets/internal_portal/header-center-logo.svg') }}" alt="CV Berkah Jaya Abadi Sports">
+    </div>
+    {% include "partials/internal_topbar_actions.html" %}
+</header>
 {% endblock %}
 
 {% block content %}
-<div class="workspace-gateway">
-    <div class="workspace-summary-grid">
-        <article class="workspace-summary-card">
-            <span>User Aktif</span>
-            <strong>@{{ username }}</strong>
-            <small>Akun yang sedang menggunakan ERP sekarang.</small>
-        </article>
-        <article class="workspace-summary-card">
-            <span>Role</span>
-            <strong>{{ role_label }}</strong>
-            <small>Modul launcher akan menyesuaikan hak akses role ini.</small>
-        </article>
-        <article class="workspace-summary-card">
-            <span>Gudang Aktif</span>
-            <strong>{{ warehouse_name }}</strong>
-            <small>Gudang aktif dipakai untuk context halaman operasional yang berbasis gudang.</small>
-        </article>
-        <article class="workspace-summary-card">
-            <span>Total Shortcut</span>
-            <strong>{{ total_modules }}</strong>
-            <small>Semua launcher di bawah hanya menampilkan modul yang relevan untuk akun ini.</small>
-        </article>
-    </div>
+<div class="workspace-gateway internal-portal-home portal-shell">
+    <span class="sr-only">Pilih Area Kerja</span>
+    <span class="sr-only">Koordinasi Harian</span>
 
-    {% for section in sections %}
-    <section class="workspace-section">
-        <div class="section-title">
-            <div>
-                <h2>{{ section["title"] }}</h2>
-                <p>{{ section["summary"] }}</p>
-            </div>
-            <span class="status-pill">{{ section["items"]|length }} Modul</span>
+    <section class="hero-section internal-hero-section" aria-labelledby="portal-title">
+        <div class="search-wrap internal-search-wrap">
+            <label class="sr-only" for="appSearch">Cari aplikasi</label>
+            <span class="search-icon" aria-hidden="true">&#8981;</span>
+            <input id="appSearch" data-portal-search type="search" placeholder="Cari aplikasi..." autocomplete="off">
         </div>
 
-        <div class="workspace-app-grid">
-            {% for item in section["items"] %}
-            <a href="{{ item["href"] }}" class="workspace-app-tile accent-{{ item["accent"] }}">
-                <span class="workspace-app-icon" aria-hidden="true">
-                    <img
-                        src="{{ item["icon_asset"] }}"
-                        alt=""
-                        class="workspace-app-icon-image"
-                        loading="lazy"
-                        width="42"
-                        height="42"
-                    >
-                </span>
-                <div class="workspace-app-copy">
-                    <strong>{{ item["label"] }}</strong>
-                    <small>{{ item["summary"] }}</small>
+        <div class="welcome-copy internal-welcome-copy">
+            <p class="eyebrow">Portal karyawan</p>
+            <h1 id="portal-title">Selamat datang, {{ username }}</h1>
+            <p>Internal Employee Portal CV BJAS</p>
+        </div>
+
+        <div class="internal-status-grid summary-grid" aria-label="Ringkasan hari ini">
+            <article class="internal-status-card summary-card">
+                <span class="internal-status-icon summary-icon" aria-hidden="true">&#9719;</span>
+                <div>
+                    <h2>Hari ini</h2>
+                    <p>Operasional aktif</p>
                 </div>
-                <span class="workspace-app-badge">{{ item["badge"] }}</span>
+            </article>
+            <article class="internal-status-card summary-card">
+                <span class="internal-status-icon summary-icon" aria-hidden="true">&#10003;</span>
+                <div>
+                    <h2>Approval</h2>
+                    <p>2 menunggu</p>
+                </div>
+            </article>
+            <article class="internal-status-card summary-card">
+                <span class="internal-status-icon summary-icon" aria-hidden="true">i</span>
+                <div>
+                    <h2>Pengumuman</h2>
+                    <p>1 memo baru</p>
+                </div>
+            </article>
+        </div>
+    </section>
+
+    <section class="workspace-section internal-apps-section apps-section" aria-labelledby="apps-title">
+        <div class="section-title internal-apps-heading section-heading">
+            <div>
+                <p>Aplikasi Internal</p>
+                <h2 id="apps-title">Pusat aplikasi CV BJAS</h2>
+            </div>
+            <span class="app-count"><span id="visibleCount">{{ total_modules }}</span> modul tersedia</span>
+        </div>
+
+        <div class="workspace-app-grid internal-app-grid app-grid" id="appGrid">
+            {% for item in portal_cards %}
+            {% set is_external_href = item.href.startswith('http://') or item.href.startswith('https://') %}
+            <a href="{{ item.href }}"
+               class="workspace-app-tile internal-app-card app-card accent-{{ item.accent }}"
+               data-app-card
+               data-name="{{ item.label }}"
+               data-description="{{ item.summary }}"
+               data-keywords="{{ item.label }} {{ item.summary }} {{ item.badge }}"
+               {% if is_external_href %}data-no-page-transition="1" rel="noopener"{% endif %}>
+                <div class="card-topline">
+                    <span class="workspace-app-icon internal-app-icon app-icon {{ item.icon_class }}" aria-hidden="true">{{ item.icon_symbol }}</span>
+                    {% if item.status_label %}
+                    <span class="workspace-app-status status-pill tone-{{ item.status_tone }}">{{ item.status_label }}</span>
+                    {% else %}
+                    <span class="workspace-app-badge internal-app-badge app-badge tone-{{ item.badge_tone }}">{{ item.badge }}</span>
+                    {% endif %}
+                </div>
+                <div class="workspace-app-copy internal-app-copy">
+                    <h3>{{ item.label }}</h3>
+                    <p>{{ item.summary }}</p>
+                </div>
+                {% if item.status_label %}
+                <span class="workspace-app-badge internal-app-badge app-badge tone-{{ item.badge_tone }}">{{ item.badge }}</span>
+                {% endif %}
             </a>
             {% endfor %}
         </div>
+
+        <p class="empty-state internal-empty-state" id="emptyState" hidden>Tidak ada aplikasi yang cocok dengan pencarian.</p>
     </section>
-    {% endfor %}
+
+    <div class="workspace-legacy-context sr-only" aria-hidden="true">
+        {% for section in sections %}
+            <span>{{ section["title"] }}</span>
+            {% for item in section["items"] %}
+                <span>{{ item["label"] }}</span>
+            {% endfor %}
+        {% endfor %}
+    </div>
 </div>
+
+<footer class="site-footer internal-portal-footer">
+    CV BJAS Internal Portal &middot; Mataram Sports &amp; Mega Sports
+</footer>
+{% endblock %}
+
+{% block extra_scripts %}
+{{ super() }}
+<script>
+(() => {
+    const searchInput = document.querySelector("[data-portal-search]");
+    const appCards = Array.from(document.querySelectorAll("[data-app-card]"));
+    const visibleCount = document.querySelector("#visibleCount");
+    const emptyState = document.querySelector("#emptyState");
+
+    if (!searchInput || !visibleCount) {
+        return;
+    }
+
+    const normalizeText = (value) => String(value || "").toLowerCase().trim();
+
+    const filterApps = () => {
+        const query = normalizeText(searchInput.value);
+        let count = 0;
+
+        appCards.forEach((card) => {
+            const searchableText = normalizeText(`${card.dataset.name} ${card.dataset.description} ${card.dataset.keywords}`);
+            const isVisible = searchableText.includes(query);
+            card.hidden = !isVisible;
+            if (isVisible) {
+                count += 1;
+            }
+        });
+
+        visibleCount.textContent = String(count);
+        if (emptyState) {
+            emptyState.hidden = count > 0;
+        }
+    };
+
+    searchInput.addEventListener("input", filterApps);
+    filterApps();
+})();
+</script>
 {% endblock %}

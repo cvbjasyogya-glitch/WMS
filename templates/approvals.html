@@ -4,6 +4,7 @@
 {% block eyebrow %}Antrian Persetujuan{% endblock %}
 {% block page_title %}Approval{% endblock %}
 {% block page_subtitle %}Pantau approval request antar gudang, inbound, outbound, dan penyesuaian stok dari satu meja kerja yang lebih rapi.{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
 
 {% block content %}
 <div class="wms-page-stack">
@@ -31,12 +32,6 @@
             <h2>Antrian Approval</h2>
             <p>Review dan setujui atau tolak permintaan yang masuk.</p>
         </div>
-    </div>
-    <div class="ops-status-flow approval-status-flow" data-approval-timeline aria-label="Alur approval">
-        <span class="ops-status-step is-done">Diajukan</span>
-        <span class="ops-status-step is-active">Review</span>
-        <span class="ops-status-step">Setujui / Tolak</span>
-        <span class="ops-status-step">Notifikasi requester</span>
     </div>
 
     {% if approvals %}
@@ -69,12 +64,12 @@
                 <td class="mono">{{ a.created_at }}</td>
                 <td class="approval-queue-action-col">
                     <div class="table-action-stack">
-                        <form method="POST" action="/approvals/approve/{{ a.id }}" data-approval-confirm="approve" data-approval-message="Setujui permintaan #{{ a.id }}?">
-                            <button type="submit" class="ghost-button">Setujui</button>
+                        <form method="POST" action="/approvals/approve/{{ a.id }}">
+                            <button type="submit" class="ghost-button" onclick="return confirm('Setujui permintaan ini?')">Setujui</button>
                         </form>
-                        <form method="POST" action="/approvals/reject/{{ a.id }}" class="table-action-row" data-approval-confirm="reject" data-approval-message="Tolak permintaan #{{ a.id }}?">
+                        <form method="POST" action="/approvals/reject/{{ a.id }}" class="table-action-row">
                             <input name="reason" placeholder="Alasan (opsional)" class="approval-reason-input">
-                            <button type="submit" class="danger-button">Tolak</button>
+                            <button type="submit" class="danger-button" onclick="return confirm('Tolak permintaan ini?')">Tolak</button>
                         </form>
                     </div>
                 </td>
@@ -87,78 +82,5 @@
     {% endif %}
 </div>
 </div>
-
-<div class="approval-confirm-backdrop" data-approval-confirm-modal hidden>
-    <div class="approval-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="approvalConfirmTitle">
-        <div>
-            <strong id="approvalConfirmTitle">Konfirmasi approval</strong>
-            <p data-approval-confirm-message>Pastikan data sudah dicek sebelum lanjut.</p>
-        </div>
-        <div class="approval-confirm-actions">
-            <button type="button" class="ghost-button" data-approval-confirm-cancel>Batal</button>
-            <button type="button" data-approval-confirm-submit>Lanjutkan</button>
-        </div>
-    </div>
-</div>
-{% endblock %}
-
-{% block extra_scripts %}
-<script>
-(() => {
-    const modal = document.querySelector("[data-approval-confirm-modal]");
-    if (!modal) return;
-
-    const messageNode = modal.querySelector("[data-approval-confirm-message]");
-    const cancelButton = modal.querySelector("[data-approval-confirm-cancel]");
-    const submitButton = modal.querySelector("[data-approval-confirm-submit]");
-    let pendingForm = null;
-
-    const closeModal = () => {
-        modal.hidden = true;
-        pendingForm = null;
-        document.removeEventListener("keydown", handleKeydown);
-    };
-
-    const handleKeydown = (event) => {
-        if (event.key === "Escape") {
-            closeModal();
-        }
-    };
-
-    const openModal = (form) => {
-        pendingForm = form;
-        const actionType = form.dataset.approvalConfirm || "approve";
-        if (messageNode) {
-            messageNode.textContent = form.dataset.approvalMessage || "Pastikan data sudah dicek sebelum lanjut.";
-        }
-        if (submitButton) {
-            submitButton.textContent = actionType === "reject" ? "Tolak Permintaan" : "Setujui Permintaan";
-            submitButton.classList.toggle("danger-button", actionType === "reject");
-        }
-        modal.hidden = false;
-        document.addEventListener("keydown", handleKeydown);
-        cancelButton?.focus();
-    };
-
-    document.querySelectorAll("[data-approval-confirm]").forEach((form) => {
-        form.addEventListener("submit", (event) => {
-            event.preventDefault();
-            openModal(form);
-        });
-    });
-
-    modal.addEventListener("click", (event) => {
-        if (event.target === modal) {
-            closeModal();
-        }
-    });
-    cancelButton?.addEventListener("click", closeModal);
-    submitButton?.addEventListener("click", () => {
-        const form = pendingForm;
-        closeModal();
-        form?.submit();
-    });
-})();
-</script>
 {% endblock %}
 

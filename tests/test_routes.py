@@ -1492,7 +1492,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         owner_html = owner_response.get_data(as_text=True)
         self.assertIn("Checkout Kasir", owner_html)
         self.assertIn('aria-label="Kasir Harian"', owner_html)
-        self.assertIn('/static/icons/workspace/wms-kasir.svg', owner_html)
+        self.assertNotIn('/static/icons/workspace/wms-kasir.svg', owner_html)
         self.assertIn("data-has-app-shell=\"1\"", owner_html)
         self.assertIn('id="posCashierUserId"', owner_html)
         self.assertIn("staff_sales_mataram", owner_html)
@@ -29674,7 +29674,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("VAR-00", page_one_html)
         self.assertIn("VAR-11", page_one_html)
         self.assertIn("Page 1 / 2", page_one_html)
-        self.assertEqual(page_one_html.count('class="stock-adjust-button"'), 21)
+        self.assertNotIn('class="stock-adjust-button"', page_one_html)
+        self.assertGreaterEqual(page_one_html.count("data-stock-qty-edit-trigger"), 21)
 
         page_two = self.client.get("/stock/?q=STKGRP-&page=2")
         self.assertEqual(page_two.status_code, 200)
@@ -29685,7 +29686,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertNotIn("VAR-11", page_two_html)
         self.assertIn("B Pagination Single 09", page_two_html)
         self.assertIn("Page 2 / 2", page_two_html)
-        self.assertEqual(page_two_html.count('class="stock-adjust-button"'), 1)
+        self.assertNotIn('class="stock-adjust-button"', page_two_html)
+        self.assertGreaterEqual(page_two_html.count("data-stock-qty-edit-trigger"), 1)
 
     def test_stock_page_groups_same_product_variants_into_dropdown(self):
         self.login()

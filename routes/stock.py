@@ -1762,7 +1762,7 @@ def stock_table():
         can_bulk_adjust_ui=can_bulk_adjust_ui,
         can_full_manage_product_master=can_full_manage_product_master,
         can_view_product_cost=can_view_product_cost,
-        stock_group_colspan=8 + (1 if can_adjust_stock_ui else 0),
+        stock_group_colspan=8,
         product_studio=product_studio,
         active_workspace=workspace,
     )

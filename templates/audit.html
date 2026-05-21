@@ -4,6 +4,7 @@
 {% block eyebrow %}Jejak Operasional{% endblock %}
 {% block page_title %}Audit Log{% endblock %}
 {% block page_subtitle %}Lacak histori perubahan stok, aktivitas user, dan jejak transaksi untuk investigasi operasional yang lebih cepat dan rapi.{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
 
 {% block page_actions %}
 <a class="btn-link" href="/audit/export?q={{ request.args.get('q', '') }}&action={{ request.args.get('action', '') }}&user={{ request.args.get('user', '') }}&start_date={{ request.args.get('start_date', '') }}&end_date={{ request.args.get('end_date', '') }}&warehouse={{ selected_warehouse or '' }}">Export CSV</a>

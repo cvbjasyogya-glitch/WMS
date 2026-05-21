@@ -14,35 +14,14 @@
     let installUiStandaloneMode = isStandaloneMode();
     let registeredServiceWorker = null;
     let lastServiceWorkerUpdateCheckAt = 0;
+    let hasAutoReloadedForServiceWorkerUpdate = false;
     let deferredServiceWorkerUpdateNoticeShown = false;
 
-    function getResponsiveViewportWidth() {
-        const candidates = [
-            window.innerWidth,
-            document.documentElement ? document.documentElement.clientWidth : 0,
-            window.visualViewport ? window.visualViewport.width : 0,
-        ]
-            .map((value) => Number(value))
-            .filter((value) => Number.isFinite(value) && value > 0);
-        return candidates.length ? Math.min(...candidates) : window.innerWidth;
-    }
-
-    function isCoarseTouchViewport() {
-        return Boolean(
-            window.matchMedia
-            && window.matchMedia("(hover: none) and (pointer: coarse)").matches
-        );
-    }
-
     function getSurfaceMode() {
-        const viewportWidth = getResponsiveViewportWidth();
-        if (isCoarseTouchViewport() && viewportWidth > 1080) {
-            return "tablet";
-        }
-        if (viewportWidth <= 767) {
+        if (window.innerWidth <= 767) {
             return "mobile";
         }
-        if (viewportWidth <= 1080) {
+        if (window.innerWidth <= 1080) {
             return "tablet";
         }
         return "desktop";
@@ -89,7 +68,7 @@
             window.showToast(message);
             return;
         }
-        console.warn(message);
+        window.alert(message);
     }
 
     function shouldDeferReloadForServiceWorker() {
@@ -230,19 +209,18 @@
     }
 
     function reloadForActivatedServiceWorker() {
-        if (!hadActiveServiceWorkerController) {
+        if (!hadActiveServiceWorkerController || hasAutoReloadedForServiceWorkerUpdate) {
             return;
         }
-        if (deferredServiceWorkerUpdateNoticeShown) {
+        if (shouldDeferReloadForServiceWorker()) {
+            if (!deferredServiceWorkerUpdateNoticeShown) {
+                deferredServiceWorkerUpdateNoticeShown = true;
+                showMessage("Update aplikasi sudah siap, tapi halaman ini tidak direfresh otomatis agar transaksi tidak terganggu.");
+            }
             return;
         }
-        deferredServiceWorkerUpdateNoticeShown = true;
-        const reloadIsUnsafe = shouldDeferReloadForServiceWorker();
-        showMessage(
-            reloadIsUnsafe
-                ? "Update aplikasi sudah siap, tapi halaman ini tidak direfresh otomatis agar transaksi tidak terganggu."
-                : "Update aplikasi sudah siap. Muat ulang manual saat pekerjaan sudah selesai."
-        );
+        hasAutoReloadedForServiceWorkerUpdate = true;
+        window.location.reload();
     }
 
     function attachServiceWorkerRegistrationHooks(registration) {
@@ -348,12 +326,6 @@
     window.addEventListener("resize", () => {
         queueInstallUiSync(false);
     }, { passive: true });
-
-    if (window.visualViewport) {
-        window.visualViewport.addEventListener("resize", () => {
-            queueInstallUiSync(false);
-        }, { passive: true });
-    }
 
     window.addEventListener("focus", () => {
         void checkForServiceWorkerUpdate(false);

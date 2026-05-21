@@ -4,6 +4,7 @@
 {% block eyebrow %}Ringkasan Gudang{% endblock %}
 {% block page_title %}Dashboard Operasional{% endblock %}
 {% block page_subtitle %}Pantau stok aktif{% if can_view_inventory_value %}, nilai inventory{% endif %}, potensi aging, dan request antar gudang dari satu ruang kerja yang selalu hidup.{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
 
 {% block page_actions %}
 <select id="warehouseSelect" class="pill-select" {% if is_scoped_user %}disabled{% endif %}>

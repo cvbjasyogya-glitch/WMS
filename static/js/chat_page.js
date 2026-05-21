@@ -93,18 +93,6 @@
     const recentPollWindowMs = lowDataMode ? 90000 : 60000;
     let lastRealtimeActivityAt = Date.now();
 
-    function showChatNotice(message) {
-        const safeMessage = String(message || "").trim();
-        if (!safeMessage) {
-            return;
-        }
-        if (typeof window.showToast === "function") {
-            window.showToast(safeMessage);
-            return;
-        }
-        console.warn(safeMessage);
-    }
-
     function markRealtimeActivity() {
         lastRealtimeActivityAt = Date.now();
     }
@@ -291,7 +279,7 @@
             updateTypingState(payload.typing_label || "");
             renderCurrentMessages(true);
         } catch (error) {
-            showChatNotice(error.message || "Pesan tidak bisa dibuka");
+            window.alert(error.message || "Pesan tidak bisa dibuka");
         }
     }
 
@@ -374,7 +362,7 @@
                 updatePinButton({ is_pinned: payload.is_pinned });
             }
         } catch (error) {
-            showChatNotice(error.message || "Pin chat gagal diubah");
+            window.alert(error.message || "Pin chat gagal diubah");
         } finally {
             pinThreadButton.disabled = false;
         }
@@ -781,7 +769,7 @@
             }
             window.location.href = payload.redirect_url;
         } catch (error) {
-            showChatNotice(error.message || "Thread gagal dibuka");
+            window.alert(error.message || "Thread gagal dibuka");
         }
     }
 
@@ -811,7 +799,7 @@
             }
             window.location.href = payload.redirect_url;
         } catch (error) {
-            showChatNotice(error.message || "Grup gagal dibuat");
+            window.alert(error.message || "Grup gagal dibuat");
         }
     }
 
@@ -863,7 +851,7 @@
             toggleStickerPanel(false);
             await pollNow(true);
         } catch (error) {
-            showChatNotice(error.message || "Pesan gagal dikirim");
+            window.alert(error.message || "Pesan gagal dikirim");
         } finally {
             sendInFlight = false;
             setComposerState(false);
@@ -897,7 +885,7 @@
             return;
         }
         if (file.size > maxAttachmentBytes) {
-            showChatNotice(`Sticker maksimal ${formatFileSize(maxAttachmentBytes)} per file.`);
+            window.alert(`Sticker maksimal ${formatFileSize(maxAttachmentBytes)} per file.`);
             return;
         }
         const formData = new FormData();
@@ -1089,7 +1077,7 @@
         if (file && file.size > maxAttachmentBytes) {
             pendingAttachment = null;
             showAttachmentPreview(null);
-            showChatNotice(`Lampiran maksimal ${formatFileSize(maxAttachmentBytes)} per file.`);
+            window.alert(`Lampiran maksimal ${formatFileSize(maxAttachmentBytes)} per file.`);
             return;
         }
         pendingAttachment = file || null;

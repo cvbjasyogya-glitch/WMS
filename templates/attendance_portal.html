@@ -85,7 +85,6 @@
         data-today-date="{{ today_date }}"
         data-daily-report-submitted="{{ '1' if portal_today_daily_report_submitted else '0' }}"
         data-daily-report-required="{{ '1' if portal_check_out_daily_report_required else '0' }}"
-        data-allow-missing-gps="{{ '1' if portal_allow_missing_gps else '0' }}"
         data-daily-report-url="/laporan-harian/"
         data-shift-profiles='{{ portal_shift_profiles_payload|tojson }}'
     >
@@ -198,10 +197,7 @@
                                 <option value="{{ option.value }}" {% if option.value == portal_default_location_scope %}selected{% endif %}>{{ option.label }}</option>
                                 {% endfor %}
                             </select>
-                            <small class="helper-text">
-                                Pilih area kerja yang paling sesuai. Setelah GPS terbaca, portal akan mengisi alamat atau tempat absennya.
-                                {% if portal_allow_missing_gps %}Jika GPS perangkat gagal, absen intern tetap bisa disimpan dengan catatan GPS tidak terdeteksi.{% endif %}
-                            </small>
+                            <small class="helper-text">Pilih area kerja yang paling sesuai. Setelah GPS terbaca, portal akan mengisi alamat atau tempat absennya.</small>
                         </div>
                         <div class="span-full" data-location-other-wrap hidden>
                             <label>Jelaskan Lokasi Lainnya</label>
@@ -226,10 +222,6 @@
                             <textarea name="note" rows="3" placeholder="Contoh: tugas event, GPS indoor, atau catatan check out." {% if portal_punch_mode == "complete" %}disabled{% endif %}></textarea>
                         </div>
                     </details>
-                    <div class="attendance-submit-feedback" data-attendance-submit-feedback hidden>
-                        <span data-attendance-submit-feedback-text></span>
-                        <a href="/laporan-harian/" class="ghost-button" data-attendance-report-link>Isi Report Harian</a>
-                    </div>
                     <div class="split-actions attendance-submit-row">
                         <button type="submit" {% if portal_punch_mode == "complete" %}disabled{% endif %}>
                             {% if portal_punch_mode == "complete" %}Absensi Hari Ini Lengkap{% else %}Simpan Absen{% endif %}
@@ -424,15 +416,11 @@
     const punchTimeDisplay = portal.querySelector("[data-punch-time-display]");
     const form = portal.querySelector("form");
     const submitButton = form.querySelector("button[type='submit']");
-    const submitFeedback = portal.querySelector("[data-attendance-submit-feedback]");
-    const submitFeedbackText = portal.querySelector("[data-attendance-submit-feedback-text]");
-    const submitReportLink = portal.querySelector("[data-attendance-report-link]");
     const employeeName = portal.dataset.employeeName || "";
     const warehouseName = portal.dataset.warehouseName || "";
     const todayDate = portal.dataset.todayDate || "";
     const dailyReportSubmitted = portal.dataset.dailyReportSubmitted === "1";
     const dailyReportRequired = portal.dataset.dailyReportRequired !== "0";
-    const allowMissingGps = portal.dataset.allowMissingGps === "1";
     const dailyReportUrl = portal.dataset.dailyReportUrl || "/laporan-harian/";
     const shiftProfiles = (() => {
         try {
@@ -630,7 +618,7 @@
     const getAccuracyLabel = () => {
         const rawValue = (accuracyInput?.value || "").trim();
         if (!rawValue) {
-            return allowMissingGps ? "GPS tidak terdeteksi" : "Akurasi GPS belum dibaca";
+            return "Akurasi GPS belum dibaca";
         }
         return `Akurasi ${rawValue} m`;
     };
@@ -645,21 +633,6 @@
     };
 
     const getLocationScopeValue = () => (locationScopeSelect?.value || "").trim().toLowerCase();
-
-    const getLocationShiftProfileKey = () => {
-        const scopeValue = getLocationScopeValue();
-        return scopeValue && shiftProfiles[scopeValue] ? scopeValue : "";
-    };
-
-    const syncShiftProfileFromLocationScope = () => {
-        const profileKey = getLocationShiftProfileKey();
-        if (!profileKey || !shiftProfileSelect || portalLocked) {
-            return;
-        }
-        if (shiftProfileSelect.value !== profileKey) {
-            shiftProfileSelect.value = profileKey;
-        }
-    };
 
     const getLocationScopeLabel = () => {
         const scopeValue = getLocationScopeValue();
@@ -938,7 +911,7 @@
                 </defs>
                 <rect width="320" height="320" rx="28" fill="url(#bg)"/>
                 <rect x="12" y="12" width="296" height="296" rx="24" fill="rgba(255,255,255,0.78)" stroke="rgba(255,255,255,0.65)"/>
-                <g stroke="#bfdbfe" stroke-width="10" stroke-linecap="round" fill="none" opacity="0.92">
+                <g stroke="#f7e8b6" stroke-width="10" stroke-linecap="round" fill="none" opacity="0.92">
                     <path d="M12 48 H308"/>
                     <path d="M22 118 H290"/>
                     <path d="M32 192 H306"/>
@@ -956,10 +929,10 @@
                     <path d="M24 84 C80 86 126 102 170 146 C208 184 252 206 308 214"/>
                 </g>
                 <path d="M20 208 C70 170 96 124 156 112" stroke="#86efac" stroke-width="18" stroke-linecap="round" fill="none" opacity="0.82"/>
-                <circle cx="176" cy="152" r="28" fill="#2563eb" opacity="0.16"/>
-                <path d="M176 92 C145 92 120 117 120 148 C120 188 176 246 176 246 C176 246 232 188 232 148 C232 117 207 92 176 92Z" fill="#2563eb" filter="url(#shadow)"/>
+                <circle cx="176" cy="152" r="28" fill="#d7b760" opacity="0.16"/>
+                <path d="M176 92 C145 92 120 117 120 148 C120 188 176 246 176 246 C176 246 232 188 232 148 C232 117 207 92 176 92Z" fill="#d7b760" filter="url(#shadow)"/>
                 <circle cx="176" cy="148" r="18" fill="#ffffff"/>
-                <circle cx="176" cy="148" r="10" fill="#2563eb"/>
+                <circle cx="176" cy="148" r="10" fill="#b99438"/>
                 <rect x="24" y="22" width="92" height="28" rx="14" fill="rgba(255,255,255,0.86)"/>
                 <text x="70" y="41" text-anchor="middle" fill="#0f172a" font-size="14" font-family="Segoe UI, Arial, sans-serif" font-weight="700">GeoTag</text>
                 <rect x="18" y="246" width="284" height="58" rx="18" fill="rgba(7,17,31,0.08)"/>
@@ -1271,10 +1244,10 @@
         const badgeLabel = getPunchTypeLabel();
         const badgePalette = {
             "Masuk": "#16a34a",
-            "Pulang": "#2563eb",
+            "Pulang": "#d7b760",
             "Break Start": "#f59e0b",
             "Break Finish": "#14b8a6",
-            "Absen Bebas": "#7c3aed",
+            "Absen Bebas": "#8a6417",
         };
         const punchDate = parsePunchDate();
         const timeLabel = punchDate.toLocaleTimeString("id-ID", {
@@ -1380,20 +1353,6 @@
     const setCameraState = (message, tone = "idle") => {
         cameraStatus.textContent = message;
         cameraStatus.dataset.state = tone;
-    };
-
-    const setSubmitFeedback = (message = "", tone = "error") => {
-        if (!submitFeedback) {
-            return;
-        }
-        if (submitFeedbackText) {
-            submitFeedbackText.textContent = message;
-        }
-        submitFeedback.dataset.state = tone;
-        submitFeedback.hidden = !message;
-        if (submitReportLink) {
-            submitReportLink.href = dailyReportUrl;
-        }
     };
 
     const toggleFallbackCapture = (visible) => {
@@ -1688,9 +1647,7 @@
 
         if (!navigator.geolocation) {
             locationStatus.value = "Browser tidak mendukung GPS";
-            locationHelper.textContent = allowMissingGps
-                ? "Perangkat ini tidak bisa mengirim geotag. Akun intern tetap bisa simpan absen dengan catatan GPS tidak terdeteksi."
-                : "Perangkat ini tidak bisa mengirim geotag dari browser.";
+            locationHelper.textContent = "Perangkat ini tidak bisa mengirim geotag dari browser.";
             return Promise.resolve(false);
         }
 
@@ -1743,13 +1700,9 @@
                 (error) => {
                     syncLocationMapsLink();
                     locationStatus.value = "Lokasi gagal";
-                    locationHelper.textContent = allowMissingGps
-                        ? "GPS gagal dibaca. Akun intern tetap bisa simpan absen; sistem akan mencatat GPS tidak terdeteksi."
-                        : (
-                            error && error.message
-                                ? `GPS gagal dibaca: ${error.message}`
-                                : "GPS gagal dibaca. Coba aktifkan izin lokasi lalu ulangi."
-                        );
+                    locationHelper.textContent = error && error.message
+                        ? `GPS gagal dibaca: ${error.message}`
+                        : "GPS gagal dibaca. Coba aktifkan izin lokasi lalu ulangi.";
                     resolve(false);
                 },
                 {
@@ -1850,8 +1803,6 @@
     });
 
     locationScopeSelect?.addEventListener("change", () => {
-        syncShiftProfileFromLocationScope();
-        syncShiftProfileUi();
         syncLocationScopeUi();
         if (rawPhotoDataUrl) {
             scheduleStampedPreviewRefresh();
@@ -1927,12 +1878,8 @@
         setCameraState(
             autoLocationOk
                 ? "Foto dan lokasi berhasil direkam otomatis. Kalau sudah pas, langsung simpan absen."
-                : (
-                    allowMissingGps
-                        ? "Foto berhasil diambil, tapi GPS belum terbaca. Akun intern tetap bisa simpan absen."
-                        : "Foto berhasil diambil, tapi lokasi otomatis belum terbaca. Tekan Refresh Lokasi lalu simpan absen."
-                ),
-            autoLocationOk || allowMissingGps ? "success" : "error"
+                : "Foto berhasil diambil, tapi lokasi otomatis belum terbaca. Tekan Refresh Lokasi lalu simpan absen.",
+            autoLocationOk ? "success" : "error"
         );
     });
 
@@ -2004,12 +1951,8 @@
             setCameraState(
                 autoLocationOk
                     ? "Foto perangkat dan lokasi berhasil direkam otomatis. Kalau sudah pas, langsung simpan absen."
-                    : (
-                        allowMissingGps
-                            ? "Foto perangkat berhasil diambil, tapi GPS belum terbaca. Akun intern tetap bisa simpan absen."
-                            : "Foto perangkat berhasil diambil, tapi lokasi otomatis belum terbaca. Tekan Refresh Lokasi lalu simpan absen."
-                    ),
-                autoLocationOk || allowMissingGps ? "success" : "error"
+                    : "Foto perangkat berhasil diambil, tapi lokasi otomatis belum terbaca. Tekan Refresh Lokasi lalu simpan absen.",
+                autoLocationOk ? "success" : "error"
             );
         } catch (error) {
             setCameraState("Foto dari kamera perangkat belum bisa dibaca. Coba ulangi lagi.", "error");
@@ -2037,11 +1980,10 @@
         const selectedPunchType = punchTypeSelect ? (punchTypeSelect.value || "check_in").trim().toLowerCase() : "check_in";
         if (selectedPunchType === "check_out" && dailyReportRequired && !dailyReportSubmitted) {
             event.preventDefault();
-            setSubmitFeedback("Sebelum check out, kirim report harian dulu. Isi ringkasan kerja, kendala, dan tindak lanjut sampai lengkap.");
-            submitFeedback?.scrollIntoView({ behavior: "smooth", block: "center" });
+            window.alert("Sebelum check out, kirim report harian dulu. Isi ringkasan kerja, kendala, dan tindak lanjut sampai lengkap.");
+            window.location.href = dailyReportUrl;
             return;
         }
-        setSubmitFeedback("");
         if (!rawPhotoDataUrl) {
             event.preventDefault();
             setCameraState("Ambil foto dulu sebelum menyimpan absen.", "error");
@@ -2058,16 +2000,10 @@
         }
 
         if (!latitudeInput.value || !longitudeInput.value) {
-            if (allowMissingGps) {
-                locationStatus.value = "GPS tidak terdeteksi";
-                locationHelper.textContent = "Absen intern akan disimpan tanpa titik GPS dan ditandai GPS tidak terdeteksi.";
-                syncLocationScopeUi();
-            } else {
-                event.preventDefault();
-                locationStatus.value = "Lokasi wajib";
-                locationHelper.textContent = "Lokasi otomatis belum masuk. Tekan Refresh Lokasi lalu coba simpan lagi.";
-                return;
-            }
+            event.preventDefault();
+            locationStatus.value = "Lokasi wajib";
+            locationHelper.textContent = "Lokasi otomatis belum masuk. Tekan Refresh Lokasi lalu coba simpan lagi.";
+            return;
         }
 
         event.preventDefault();

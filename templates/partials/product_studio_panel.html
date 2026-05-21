@@ -1,12 +1,19 @@
+{% set edit_seed = product_studio.data[0] if product_studio.data else none %}
 <section
-    class="product-studio-shell product-clean-shell {% if active_workspace == 'products' %}is-active{% endif %}"
+    class="product-studio-shell product-clean-shell wms-zip-edit-page {% if active_workspace == 'products' %}is-active{% endif %}"
     id="productStudioPanel"
     data-product-studio-panel
 >
-    <div class="section-title compact">
+    <div class="wms-reference-header wms-edit-reference-header">
         <div>
-            <h2>Studio Produk</h2>
+            <p class="eyebrow">Route Ubah Produk</p>
+            <h2 id="product-edit-title">Ubah Item{% if edit_seed %} {{ edit_seed.sku }}{% endif %}</h2>
+            <p>Form produk aktif untuk input dan update master item.</p>
         </div>
+        <a class="button-secondary" href="/wms/stock-produk">Kembali ke Daftar</a>
+    </div>
+
+    <div class="product-studio-status-row" aria-label="Ringkasan studio produk">
         <div class="status-row">
             <span class="status-pill" data-product-summary-total>{{ product_studio.total_items }} Produk</span>
             <span class="status-pill" data-product-summary-page>Page {{ product_studio.page }} / {{ product_studio.total_pages }}</span>
@@ -85,29 +92,30 @@
     </div>
 
     <div id="formBox" class="form-box products-manual-box" {% if active_workspace == 'products' %}style="display:block;"{% else %}style="display:none;"{% endif %}>
-        <div class="section-title compact">
+        <div class="section-title compact product-edit-section-title">
             <div>
-                <h3>Tambah Produk Manual</h3>
+                <h3>Identitas Item</h3>
+                <p>Informasi utama yang tampil di daftar stok.</p>
             </div>
         </div>
 
         <div id="manualProductStatus"></div>
 
-        <form id="manualProductForm" method="POST" action="/products/add" onsubmit="return handleManualSubmit(event)">
+        <form id="manualProductForm" class="product-form product-edit-form" method="POST" action="/products/add" onsubmit="return handleManualSubmit(event)">
             <input type="hidden" name="variant_rows_json" id="variantRowsJson">
             <input type="hidden" name="variant_mode" id="manualProductVariantMode" value="variant">
 
-            <div class="form-grid">
+            <div class="form-grid product-identity-grid">
                 <div>
-                    <label>SKU</label>
+                    <label>Kode Item</label>
                     <input type="text" name="sku" placeholder="Contoh: MS-SEP-001" required>
                 </div>
                 <div>
-                    <label>Nama Produk</label>
+                    <label>Nama Item</label>
                     <input type="text" name="name" placeholder="Masukkan nama produk" required>
                 </div>
                 <div>
-                    <label>Kategori</label>
+                    <label>Jenis</label>
                     <input type="text" name="category_name" placeholder="Sepatu, Jersey, Aksesoris" required>
                 </div>
                 <div>
@@ -137,6 +145,13 @@
                 <option value="set"></option>
                 <option value="lusin"></option>
             </datalist>
+
+            <div class="section-title compact product-edit-section-title product-stock-section-title">
+                <div>
+                    <h3>Stok dan Harga</h3>
+                    <p>Stok, varian, dan harga akan tersimpan ke master produk.</p>
+                </div>
+            </div>
 
             <div class="product-mode-strip stack-gap-md">
                 <div class="product-mode-summary">
@@ -174,6 +189,13 @@
                 Jika memilih mode non-variant, sistem akan menyimpan satu baris default tanpa size atau warna.
                 Harga pokok hanya terlihat untuk owner atau super admin.
             </small>
+
+            <div class="section-title compact product-edit-section-title product-detail-section-title">
+                <div>
+                    <h3>Detail Operasional</h3>
+                    <p>Catatan pendek untuk admin stok dan kepala toko.</p>
+                </div>
+            </div>
 
             <div class="split-actions stack-gap-md">
                 <button id="btnSubmit" type="submit">Simpan Produk</button>
@@ -274,7 +296,7 @@
                     </td>
                     {% if can_full_manage_product_master %}
                     <td>
-                        <button type="button" class="ghost-button danger" onclick="deleteSingleProduct({{ p.id }})">Hapus</button>
+                        <button type="button" class="ghost-button danger" data-product-id="{{ p.id }}" onclick="deleteSingleProduct(this.dataset.productId)">Hapus</button>
                     </td>
                     {% endif %}
                 </tr>

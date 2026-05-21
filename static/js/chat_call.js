@@ -117,7 +117,7 @@
             window.showToast(message);
             return;
         }
-        console.warn(message);
+        window.alert(message);
     }
 
     function isOpenCall(call) {

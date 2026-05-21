@@ -4,10 +4,8 @@
 {% block eyebrow %}Administrasi Sistem{% endblock %}
 {% block page_title %}Warehouse System Control{% endblock %}
 {% block page_subtitle %}Halaman khusus untuk mengelola gudang aktif, melihat beban pemakaian tiap gudang, dan menjaga struktur warehouse tetap bersih untuk WMS maupun HRIS.{% endblock %}
-
-{% block page_actions %}
-<a href="/admin/" class="ghost-button">Akses &amp; Role</a>
-{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
+{% block body_class %}admin-suite-shell{% endblock %}
 
 {% block content %}
 {% include "partials/admin_local_nav.html" %}
@@ -115,8 +113,8 @@
                 <td>{{ w.stock_rows }}</td>
                 <td>{{ w.employee_rows }}</td>
                 <td>
-                    <form method="POST" action="/admin/delete_warehouse/{{ w.id }}" data-warehouse-confirm data-warehouse-confirm-message="Hapus gudang {{ w.name }}? Gudang yang masih punya stok akan tetap ditolak oleh sistem.">
-                        <button type="submit" class="danger-button">Hapus</button>
+                    <form method="POST" action="/admin/delete_warehouse/{{ w.id }}">
+                        <button type="submit" class="danger-button" onclick="return confirm('Hapus gudang ini?')">Hapus</button>
                     </form>
                 </td>
             </tr>
@@ -128,69 +126,5 @@
         {% endif %}
     </div>
 </details>
-
-<div class="warehouse-confirm-backdrop" data-warehouse-confirm-modal hidden>
-    <div class="warehouse-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="warehouseConfirmTitle">
-        <div>
-            <strong id="warehouseConfirmTitle">Konfirmasi Hapus Gudang</strong>
-            <p data-warehouse-confirm-message>Pastikan gudang tidak lagi dipakai sebelum dihapus.</p>
-        </div>
-        <div class="warehouse-confirm-actions">
-            <button type="button" class="ghost-button" data-warehouse-confirm-cancel>Batal</button>
-            <button type="button" class="danger-button" data-warehouse-confirm-submit>Hapus Gudang</button>
-        </div>
-    </div>
-</div>
-{% endblock %}
-
-{% block extra_scripts %}
-<script>
-(() => {
-    const modal = document.querySelector("[data-warehouse-confirm-modal]");
-    if (!modal) return;
-
-    const messageNode = modal.querySelector("[data-warehouse-confirm-message]");
-    const cancelButton = modal.querySelector("[data-warehouse-confirm-cancel]");
-    const submitButton = modal.querySelector("[data-warehouse-confirm-submit]");
-    let pendingForm = null;
-
-    const closeModal = () => {
-        modal.hidden = true;
-        pendingForm = null;
-        document.removeEventListener("keydown", handleKeydown);
-    };
-
-    const handleKeydown = (event) => {
-        if (event.key === "Escape") {
-            closeModal();
-        }
-    };
-
-    document.querySelectorAll("[data-warehouse-confirm]").forEach((form) => {
-        form.addEventListener("submit", (event) => {
-            event.preventDefault();
-            pendingForm = form;
-            if (messageNode) {
-                messageNode.textContent = form.dataset.warehouseConfirmMessage || "Pastikan gudang tidak lagi dipakai sebelum dihapus.";
-            }
-            modal.hidden = false;
-            document.addEventListener("keydown", handleKeydown);
-            cancelButton?.focus();
-        });
-    });
-
-    modal.addEventListener("click", (event) => {
-        if (event.target === modal) {
-            closeModal();
-        }
-    });
-    cancelButton?.addEventListener("click", closeModal);
-    submitButton?.addEventListener("click", () => {
-        const form = pendingForm;
-        closeModal();
-        form?.submit();
-    });
-})();
-</script>
 {% endblock %}
 

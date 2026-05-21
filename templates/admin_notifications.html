@@ -4,11 +4,8 @@
 {% block eyebrow %}Administrasi Sistem{% endblock %}
 {% block page_title %}Klasifikasi Notifikasi{% endblock %}
 {% block page_subtitle %}Atur siapa yang menerima event notifikasi ERP langsung dari UI. Default lama tetap aman sampai Anda membuat override sendiri.{% endblock %}
-
-{% block page_actions %}
-<a href="/admin/" class="ghost-button">Akses &amp; Role</a>
-<a href="/admin/warehouses" class="ghost-button">Sistem Gudang</a>
-{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
+{% block body_class %}admin-suite-shell{% endblock %}
 
 {% block content %}
 {% include "partials/admin_local_nav.html" %}

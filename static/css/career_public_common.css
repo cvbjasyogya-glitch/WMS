@@ -1,12 +1,17 @@
 .career-public-shell {
-    --career-blue: #0b63b6;
-    --career-blue-dark: #084f93;
-    --career-blue-soft: #4aa4f2;
+    --career-blue: #122a52;
+    --career-blue-dark: #0d2340;
+    --career-blue-soft: #d7b760;
     --career-ink: #17304e;
     --career-muted: #6c8098;
     --career-line: #d8e5f1;
     --career-panel: #ffffff;
     --career-shadow: 0 8px 18px rgba(17, 42, 73, 0.045);
+}
+
+.career-public-shell ::selection {
+    background: rgba(215, 183, 96, 0.34);
+    color: var(--career-ink);
 }
 
 body.career-mobile-menu-open {
@@ -607,7 +612,7 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
 .career-test-shortcut-form button {
     border: 0;
     padding: 0 16px;
-    background: linear-gradient(135deg, var(--career-blue), #2b85d4);
+    background: linear-gradient(135deg, var(--career-blue), #d7b760);
     color: #fff;
     font-weight: 700;
     cursor: pointer;
@@ -622,7 +627,7 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
     align-items: center;
     justify-content: center;
     text-decoration: none;
-    background: linear-gradient(135deg, var(--career-blue), #2b85d4);
+    background: linear-gradient(135deg, var(--career-blue), #d7b760);
     color: #fff !important;
     font-weight: 700;
     box-shadow: 0 10px 18px rgba(11, 99, 182, 0.12);
@@ -731,7 +736,7 @@ html[data-theme] body .career-public-shell .career-profile-form select option {
 
 .career-code-modal-actions a {
     border: 0;
-    background: linear-gradient(135deg, var(--career-blue), #2b85d4);
+    background: linear-gradient(135deg, var(--career-blue), #d7b760);
     color: #fff;
 }
 
@@ -1421,7 +1426,7 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
 .career-candidate-search-field input:focus {
     outline: none;
     border-color: #93c5fd;
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+    box-shadow: 0 0 0 4px rgba(215, 183, 96, 0.18);
 }
 
 .career-candidate-list-head strong,
@@ -1964,37 +1969,6 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
 
 .career-profile-grid label.span-2 {
     grid-column: span 2;
-}
-
-.career-profile-optional-details {
-    border: 1px solid #dbe6f0;
-    border-radius: 20px;
-    background: rgba(248, 252, 255, 0.88);
-    overflow: hidden;
-}
-
-.career-profile-optional-details summary {
-    cursor: pointer;
-    display: grid;
-    gap: 4px;
-    padding: 16px 18px;
-    color: #163858;
-    font-weight: 800;
-    list-style: none;
-}
-
-.career-profile-optional-details summary::-webkit-details-marker {
-    display: none;
-}
-
-.career-profile-optional-details summary span {
-    color: #6f8194;
-    font-size: 0.88rem;
-    font-weight: 600;
-}
-
-.career-profile-optional-details .career-profile-grid {
-    padding: 0 18px 18px;
 }
 
 .career-profile-photo-block {
@@ -2555,7 +2529,7 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
 
 @media (max-width: 540px) {
     .career-candidate-topbar-actions {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: 1fr;
     }
 
     .career-candidate-preview-meta article,
@@ -2578,290 +2552,6 @@ body.minimal-shell .main.career-public-shell.career-candidate-shell-root > .page
     .career-profile-form textarea {
         min-height: 112px;
         padding: 14px 16px;
-    }
-}
-
-@media (max-width: 760px) {
-    body.minimal-shell .main.career-public-shell.career-candidate-shell-root {
-        padding-inline: 4px;
-        padding-bottom: 18px;
-    }
-
-    .career-candidate-shell {
-        border-radius: 18px;
-        overflow: hidden;
-    }
-
-    .career-candidate-sidebar {
-        position: sticky;
-        top: 0;
-        z-index: 20;
-        background: rgba(255, 255, 255, 0.98);
-    }
-
-    .career-candidate-sidebar-brand {
-        display: none;
-    }
-
-    .career-candidate-sidebar-nav {
-        grid-auto-columns: minmax(76px, 84px);
-        gap: 6px;
-        padding: 0 2px 2px;
-    }
-
-    .career-candidate-sidebar-nav a {
-        min-height: 54px;
-        padding: 7px 6px;
-        gap: 4px;
-        border-radius: 14px;
-    }
-
-    .career-candidate-sidebar-nav a span:last-child {
-        font-size: 0.72rem;
-        line-height: 1.1;
-    }
-
-    .career-candidate-nav-icon {
-        width: 22px;
-        height: 22px;
-    }
-
-    .career-candidate-nav-icon svg {
-        width: 18px;
-        height: 18px;
-    }
-
-    .career-candidate-topbar {
-        padding: 14px;
-        gap: 12px;
-    }
-
-    .career-candidate-topbar-kicker {
-        display: none;
-    }
-
-    .career-candidate-topbar-copy h1 {
-        font-size: 1.26rem;
-        letter-spacing: 0;
-    }
-
-    .career-candidate-topbar-actions {
-        gap: 8px;
-    }
-
-    .career-candidate-topbar-stat {
-        min-height: 44px;
-        padding: 8px 10px;
-        border-radius: 14px;
-    }
-
-    .career-candidate-topbar-stat strong {
-        font-size: 0.94rem;
-    }
-
-    .career-candidate-topbar-stat span {
-        font-size: 0.72rem;
-    }
-
-    .career-candidate-account-pill {
-        grid-column: auto;
-        min-width: 0;
-        min-height: 46px;
-        padding: 0 10px 0 6px;
-        border-radius: 16px;
-    }
-
-    .career-candidate-account-copy {
-        min-width: 0;
-    }
-
-    .career-candidate-account-copy strong {
-        max-width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 0.86rem;
-    }
-
-    .career-candidate-account-copy small {
-        display: none;
-    }
-
-    .career-candidate-avatar,
-    .career-profile-avatar span {
-        width: 34px;
-        height: 34px;
-        font-size: 0.88rem;
-    }
-
-    .career-candidate-topbar-link {
-        grid-column: auto;
-        min-height: 44px;
-        padding: 0 12px;
-        border-radius: 14px;
-        border: 1px solid #dfe9f3;
-        background: #f8fbfd;
-        justify-content: center;
-        color: #17324f;
-    }
-
-    .career-candidate-body {
-        padding: 12px;
-        gap: 14px;
-    }
-
-    .career-candidate-panel {
-        border-radius: 18px;
-        box-shadow: none;
-    }
-
-    .career-candidate-jobs-list-panel,
-    .career-candidate-preview-panel,
-    .career-profile-sidebar,
-    .career-profile-form-panel,
-    .career-password-card {
-        padding: 14px;
-    }
-
-    .career-candidate-list-head p,
-    .career-candidate-preview-copy p,
-    .career-candidate-empty-copy p {
-        display: none;
-    }
-
-    .career-candidate-job-list,
-    .career-candidate-stack,
-    .career-candidate-jobs-list-panel,
-    .career-candidate-preview-card,
-    .career-candidate-empty-stage {
-        gap: 12px;
-    }
-
-    .career-candidate-job-item {
-        padding: 12px;
-        border-radius: 16px;
-        gap: 10px;
-    }
-
-    .career-candidate-job-item-main {
-        grid-template-columns: 40px minmax(0, 1fr);
-        gap: 10px;
-    }
-
-    .career-candidate-job-badge {
-        width: 40px;
-        height: 40px;
-        border-radius: 13px;
-    }
-
-    .career-candidate-job-copy {
-        gap: 6px;
-    }
-
-    .career-candidate-job-copy h2,
-    .career-candidate-info-head h2 {
-        font-size: 0.98rem;
-        letter-spacing: 0;
-    }
-
-    .career-candidate-job-copy p,
-    .career-candidate-info-head p {
-        font-size: 0.82rem;
-    }
-
-    .career-candidate-job-meta,
-    .career-candidate-preview-meta,
-    .career-candidate-info-matrix {
-        gap: 6px;
-    }
-
-    .career-candidate-job-meta span,
-    .career-candidate-inline-state,
-    .career-candidate-status-pill {
-        min-height: 26px;
-        padding: 0 9px;
-        font-size: 0.72rem;
-    }
-
-    .career-candidate-preview-card,
-    .career-candidate-empty-stage {
-        min-height: auto;
-        justify-items: stretch;
-        align-content: start;
-        text-align: left;
-    }
-
-    .career-candidate-preview-copy,
-    .career-candidate-empty-copy {
-        justify-items: start;
-        gap: 8px;
-    }
-
-    .career-candidate-preview-copy h2,
-    .career-candidate-empty-copy h2,
-    .career-profile-panel-head h2 {
-        font-size: 1.22rem;
-        letter-spacing: 0;
-    }
-
-    .career-candidate-preview-meta article,
-    .career-candidate-info-matrix article {
-        padding: 12px 14px;
-        border-radius: 14px;
-    }
-
-    .career-candidate-inline-button,
-    .career-candidate-primary-action,
-    .career-candidate-secondary-action {
-        min-height: 42px;
-        padding: 0 14px;
-        border-radius: 12px;
-        font-size: 0.9rem;
-    }
-
-    .career-candidate-info-card,
-    .career-profile-lock-banner,
-    .career-profile-upload-guide,
-    .career-profile-bulk-preview,
-    .career-candidate-empty-inline {
-        padding: 14px;
-        border-radius: 16px;
-        box-shadow: none;
-    }
-
-    .career-profile-summary-card {
-        display: none;
-    }
-
-    .career-profile-section-nav {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .career-profile-section-nav a {
-        padding: 12px;
-        border-radius: 14px;
-    }
-}
-
-@media (max-width: 420px) {
-    .career-candidate-sidebar-nav {
-        grid-auto-columns: minmax(66px, 78px);
-    }
-
-    .career-candidate-topbar-actions {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .career-candidate-account-pill {
-        grid-column: 1 / -1;
-    }
-
-    .career-candidate-topbar-link {
-        grid-column: 1 / -1;
-    }
-
-    .career-candidate-job-meta span:nth-child(3) {
-        display: none;
     }
 }
 
