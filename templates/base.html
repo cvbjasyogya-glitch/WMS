@@ -39,7 +39,7 @@
 <script>
 (() => {
     const root = document.documentElement;
-    root.classList.add("page-motion-enabled");
+    root.classList.add("page-motion-ready");
     const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
     const effectiveType = String((connection && connection.effectiveType) || "").trim().toLowerCase();
     const saveData = Boolean(connection && connection.saveData);
@@ -61,7 +61,7 @@
         || (hardwareConcurrency > 0 && hardwareConcurrency <= 6)
     );
     const performanceTier = lowEndDevice ? "low" : (balancedDevice ? "balanced" : "full");
-    const reducedEffects = prefersReducedMotion || lowEndDevice;
+    const reducedEffects = true;
     const idleTimeoutFactor = lowEndDevice ? 1.9 : (balancedDevice ? 1.25 : 1);
     const connectionTier = saveData ? "save-data" : (effectiveType || "default");
 
@@ -96,11 +96,7 @@
 
     root.dataset.performanceTier = performanceTier;
     root.dataset.connectionTier = connectionTier;
-    if (reducedEffects) {
-        root.dataset.reducedEffects = "1";
-    } else {
-        delete root.dataset.reducedEffects;
-    }
+    root.dataset.reducedEffects = "1";
 
     window.wmsDeviceProfile = {
         performanceTier,
@@ -2255,101 +2251,9 @@ window.wmsRunWhenIdle(() => {
 <script>
 (() => {
     const root = document.documentElement;
-    const body = document.body;
-    const reducedMotion = Boolean(
-        root.dataset.reducedEffects === "1"
-        || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)
-    );
-
-    if (!body || reducedMotion) {
-        root.classList.add("page-motion-ready");
-        return;
-    }
-
-    const isFirstVisit = (() => {
-        try {
-            return sessionStorage.getItem("wms-page-motion-seen") !== "1";
-        } catch (error) {
-            return true;
-        }
-    })();
-    const introDelay = isFirstVisit ? 560 : 120;
-
-    function markReady() {
-        root.classList.remove("page-motion-leaving");
-        root.classList.add("page-motion-ready");
-        try {
-            sessionStorage.setItem("wms-page-motion-seen", "1");
-        } catch (error) {
-        }
-    }
-
-    window.setTimeout(markReady, introDelay);
-
-    window.addEventListener("pageshow", () => {
-        window.setTimeout(markReady, 40);
-    });
-
-    window.addEventListener("pagehide", () => {
-        root.classList.remove("page-motion-leaving");
-    });
-
-    document.addEventListener("click", (event) => {
-        if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-            return;
-        }
-
-        const rawTarget = event.target;
-        const target = rawTarget && rawTarget.nodeType === 1
-            ? rawTarget
-            : (rawTarget && rawTarget.parentElement ? rawTarget.parentElement : null);
-        if (!target || typeof target.closest !== "function") {
-            return;
-        }
-
-        const link = target.closest("a[href]");
-        if (!link) {
-            return;
-        }
-
-        const rawHref = String(link.getAttribute("href") || "").trim();
-        if (
-            !rawHref
-            || rawHref.startsWith("#")
-            || rawHref.startsWith("javascript:")
-            || link.target
-            || link.hasAttribute("download")
-            || link.closest("[data-no-page-transition]")
-        ) {
-            return;
-        }
-
-        let targetUrl;
-        try {
-            targetUrl = new URL(link.href, window.location.href);
-        } catch (error) {
-            return;
-        }
-
-        if (targetUrl.origin !== window.location.origin) {
-            return;
-        }
-
-        const currentUrl = new URL(window.location.href);
-        const onlyHashChanged = targetUrl.pathname === currentUrl.pathname
-            && targetUrl.search === currentUrl.search
-            && targetUrl.hash;
-        if (onlyHashChanged) {
-            return;
-        }
-
-        event.preventDefault();
-        root.classList.remove("page-motion-ready");
-        root.classList.add("page-motion-leaving");
-        window.setTimeout(() => {
-            window.location.href = targetUrl.href;
-        }, 180);
-    }, true);
+    root.classList.remove("page-motion-enabled", "page-motion-leaving");
+    root.classList.add("page-motion-ready");
+    root.dataset.reducedEffects = "1";
 })();
 </script>
 {% block extra_scripts %}{% endblock %}

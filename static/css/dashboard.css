@@ -1620,7 +1620,8 @@ body .pos-ipos-refactor .pos-payment-modal {
     z-index: 520;
     display: grid;
     place-items: center;
-    padding: 18px;
+    padding: 12px;
+    overflow: hidden;
 }
 
 body .pos-ipos-refactor .pos-payment-modal-backdrop {
@@ -1636,7 +1637,10 @@ body .pos-ipos-refactor .pos-payment-modal-window {
     position: relative;
     z-index: 1;
     width: min(520px, calc(100vw - 28px));
-    max-height: min(760px, calc(100vh - 34px));
+    height: min(720px, calc(100dvh - 24px));
+    max-height: calc(100dvh - 24px);
+    max-width: 100%;
+    min-width: 0;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
     overflow: hidden;
@@ -1677,9 +1681,12 @@ body .pos-ipos-refactor .pos-payment-modal-close {
 
 body .pos-ipos-refactor .pos-payment-modal-body {
     min-height: 0;
+    min-width: 0;
     overflow: auto;
     padding: 14px;
     overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
 }
 
 body .pos-ipos-refactor .pos-payment-modal .pos-ipos-payment-panel {
@@ -1728,7 +1735,8 @@ body .pos-ipos-refactor #posDebitBankModal .picker-modal-backdrop {
 
 body .pos-ipos-refactor #posDebitBankModal .picker-modal-panel {
     width: min(440px, calc(100vw - 32px));
-    max-height: min(620px, calc(100dvh - 36px));
+    max-height: min(620px, calc(100dvh - 24px));
+    overflow: auto;
     gap: 12px;
     padding: 18px;
     border-radius: 22px;
@@ -2040,13 +2048,14 @@ body .pos-ipos-refactor .pos-terminal-hiddentools {
 
     body .pos-ipos-refactor .pos-payment-modal-window {
         width: 100%;
-        max-height: calc(100dvh - 54px);
+        height: min(92dvh, calc(100dvh - env(safe-area-inset-top) - 10px));
+        max-height: calc(100dvh - env(safe-area-inset-top) - 10px);
         border-radius: 24px 24px 0 0;
         border-bottom: 0;
     }
 
     body .pos-ipos-refactor .pos-payment-modal-body {
-        padding: 12px;
+        padding: 10px 10px max(14px, env(safe-area-inset-bottom));
     }
 
     body .pos-ipos-refactor .pos-payment-modal .pos-ipos-methodgrid,
@@ -2189,8 +2198,63 @@ body .pos-ipos-refactor .pos-terminal-hiddentools {
 }
 
 html {
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
     overscroll-behavior-y: none;
+}
+
+@media (max-height: 720px) {
+    body .pos-ipos-refactor .pos-payment-modal {
+        padding: 8px;
+    }
+
+    body .pos-ipos-refactor .pos-payment-modal-window {
+        height: calc(100dvh - 16px);
+        max-height: calc(100dvh - 16px);
+        border-radius: 18px;
+    }
+
+    body .pos-ipos-refactor .pos-payment-modal-head {
+        padding: 10px 12px 8px;
+    }
+
+    body .pos-ipos-refactor .pos-payment-modal-head h3 {
+        margin-top: 1px;
+        font-size: 1.08rem;
+    }
+
+    body .pos-ipos-refactor .pos-payment-modal-close {
+        inline-size: 34px;
+        block-size: 34px;
+        font-size: 1.2rem;
+    }
+
+    body .pos-ipos-refactor .pos-payment-modal-body {
+        padding: 10px;
+    }
+
+    body .pos-ipos-refactor .pos-payment-modal .pos-ipos-totalbox {
+        padding: 10px 12px;
+        border-radius: 14px;
+    }
+
+    body .pos-ipos-refactor .pos-payment-modal .pos-ipos-totalbox > strong {
+        font-size: clamp(1.7rem, 6vw, 2.65rem);
+    }
+
+    body .pos-ipos-refactor .pos-payment-modal .pos-ipos-summaryrows > div,
+    body .pos-ipos-refactor .pos-payment-modal .pos-ipos-summary-input {
+        min-height: 36px;
+        padding-inline: 10px;
+    }
+
+    body .pos-ipos-refactor .pos-payment-modal .pos-ipos-methodgrid,
+    body .pos-ipos-refactor .pos-payment-modal .pos-ipos-shortcuts {
+        gap: 8px;
+    }
+
+    body .pos-ipos-refactor .pos-payment-modal .pos-ipos-checkout {
+        min-height: 42px;
+    }
 }
 
 body {
@@ -4908,7 +4972,7 @@ body .chat-message-board {
     gap: 14px;
     overscroll-behavior: contain;
     scrollbar-gutter: auto;
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
     background:
         radial-gradient(circle at top left, rgba(255, 255, 255, 0.72), transparent 16%),
         radial-gradient(circle at top right, rgba(93, 183, 255, 0.08), transparent 18%),
@@ -28342,6 +28406,19 @@ html[data-reduced-effects="1"] .page-motion-curtain {
     display: none !important;
 }
 
+html[data-reduced-effects="1"] {
+    scroll-behavior: auto !important;
+}
+
+html[data-reduced-effects="1"] body,
+html[data-reduced-effects="1"] body *,
+html[data-reduced-effects="1"] body *::before,
+html[data-reduced-effects="1"] body *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .page-motion-curtain {
         display: none !important;
@@ -28894,6 +28971,30 @@ body.wms-stock-compact-shell .stock-pagination-strip .pagination-summary {
     body.wms-stock-compact-shell .stock-filter-bar .ghost-button {
         width: 100%;
         flex-basis: 100%;
+    }
+}
+
+@media (max-width: 760px) {
+    html,
+    body {
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
+    body :is(.layout, .main, .page-content, .internal-app-topbar, .internal-module-layout, .clean-module-layout, .module-layout, .content-panel, .internal-module-panel, .information-panel, .form-box, .panel, .box, .card) {
+        min-width: 0 !important;
+        max-width: 100% !important;
+        box-sizing: border-box;
+    }
+
+    body :is(.table-box, .table-responsive, .stock-table-viewport, .pos-ipos-tablewrap, .pos-ipos-cartwrap) {
+        max-width: 100% !important;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    body :is(input, select, textarea, button, .ghost-button, .button-primary, .button-secondary) {
+        max-width: 100%;
     }
 }
 

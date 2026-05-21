@@ -37,6 +37,12 @@ def _redirect_with_query(target):
     return redirect(f"{target}{separator}{query_string}")
 
 MODULE_ITEM_REDIRECTS = {
+    "report": {
+        "laporan-staff-penjualan": "/kasir/staff-sales",
+        "laporan-stok": "/stock/",
+        "laporan-kehadiran": "/hris/attendance",
+        "laporan-report-karyawan": "/hris/report",
+    },
     "sales": {
         "sales-jalan": "/laporan-harian/",
         "customer-penawaran-barang": "/crm/?tab=contacts",
@@ -296,15 +302,15 @@ INTERNAL_MODULE_HUBS = {
         "permission": "report",
         "nav": [
             _hub_nav("Dashboard", "dashboard", "hris-home", target="/modul/report/"),
-            _hub_nav("Laporan Staff Penjualan", "laporan-staff-penjualan", "coordination-report-harian", target="/laporan-harian/"),
-            _hub_nav("Laporan Stok", "laporan-stok", "wms-stok-produk"),
-            _hub_nav("Laporan Kehadiran", "laporan-kehadiran", "coordination-absen-foto"),
+            _hub_nav("Laporan Staff Penjualan", "laporan-staff-penjualan", "coordination-report-harian", target="/kasir/staff-sales"),
+            _hub_nav("Laporan Stok", "laporan-stok", "wms-stok-produk", target="/stock/"),
+            _hub_nav("Laporan Kehadiran", "laporan-kehadiran", "coordination-absen-foto", target="/hris/attendance"),
             _hub_nav("Laporan Report Karyawan", "laporan-report-karyawan", "hris-report", target="/hris/report"),
         ],
         "cards": [
-            _hub_card("Sales", "Laporan Staff Penjualan", "Rekap aktivitas dan penjualan staff.", "Sales", "green", "/laporan-harian/"),
-            _hub_card("Stock", "Laporan Stok", "Stock aktif, aging, dan nilai barang.", "Stock", "blue", "/modul/report/laporan-stok"),
-            _hub_card("Attendance", "Laporan Kehadiran", "Rekap absen dan kedisiplinan.", "Absen", "amber", "/modul/report/laporan-kehadiran"),
+            _hub_card("Sales", "Laporan Staff Penjualan", "Rekap aktivitas dan penjualan staff.", "Sales", "green", "/kasir/staff-sales"),
+            _hub_card("Stock", "Laporan Stok", "Stock aktif, aging, dan nilai barang.", "Stock", "blue", "/stock/"),
+            _hub_card("Attendance", "Laporan Kehadiran", "Rekap absen dan kedisiplinan.", "Absen", "amber", "/hris/attendance"),
             _hub_card("Employee", "Laporan Report Karyawan", "Report people ops dan dokumen HR.", "HRIS", "blue", "/hris/report"),
         ],
     },

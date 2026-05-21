@@ -974,7 +974,7 @@
         setFormValue(scheduleEntryForm, "entry_start_date", source.dataset.scheduleDate || "");
         setFormValue(scheduleEntryForm, "entry_end_date", source.dataset.scheduleDate || "");
         setFormValue(scheduleEntryForm, "note", source.dataset.scheduleNote || "");
-        scheduleEntryDisclosure?.scrollIntoView({ behavior: "smooth", block: "start" });
+        scheduleEntryDisclosure?.scrollIntoView({ behavior: "auto", block: "start" });
         focusField(scheduleEntryForm.elements.namedItem("shift_code"));
     }
 
@@ -993,7 +993,7 @@
         setFormValue(scheduleLiveForm, "bg_color", source.dataset.liveBgColor || scheduleLiveDefaults.bg_color || "#dfeaf5");
         setFormValue(scheduleLiveForm, "text_color", source.dataset.liveTextColor || scheduleLiveDefaults.text_color || "#17304a");
         setFormChecked(scheduleLiveForm, "is_checked", source.dataset.liveIsChecked === "1");
-        scheduleLiveDisclosure?.scrollIntoView({ behavior: "smooth", block: "start" });
+        scheduleLiveDisclosure?.scrollIntoView({ behavior: "auto", block: "start" });
         focusField(scheduleLiveForm.elements.namedItem("channel_label"));
     }
 

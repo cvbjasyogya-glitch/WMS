@@ -4197,3 +4197,30 @@ body.internal-clean-page-shell .topbar-dropdown-item.is-danger {
         grid-template-columns: minmax(0, 1fr) !important;
     }
 }
+
+@media (max-width: 760px) {
+    body.internal-portal-shell,
+    body.internal-module-shell,
+    body.wms-refactor-shell,
+    body.internal-wms-module-shell {
+        max-width: 100%;
+        overflow-x: hidden !important;
+    }
+
+    body.internal-portal-shell :is(.layout, .main, .portal-shell, .page-content, .site-header, .app-grid),
+    body.internal-module-shell :is(.layout, .main, .page-content, .module-header, .module-layout, .content-panel, .information-panel),
+    body.wms-refactor-shell :is(.clean-module-layout, .clean-module-sidebar, .clean-content-panel),
+    body.internal-wms-module-shell :is(.internal-module-layout, .internal-module-panel, .information-policy-grid) {
+        min-width: 0 !important;
+        max-width: 100% !important;
+        box-sizing: border-box;
+    }
+
+    body.internal-module-shell :is(.table-box, .table-responsive, .data-table-wrap),
+    body.wms-refactor-shell :is(.table-box, .table-responsive, .data-table-wrap),
+    body.internal-wms-module-shell :is(.table-box, .table-responsive, .data-table-wrap) {
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+}

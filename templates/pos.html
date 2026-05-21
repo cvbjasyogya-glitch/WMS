@@ -547,6 +547,7 @@ const posTaxValue = document.getElementById("posTaxValue");
 const posCheckoutButton = document.getElementById("posCheckoutButton");
 const posPaymentModal = document.getElementById("posPaymentModal");
 const posPaymentModalWindow = posPaymentModal?.querySelector(".pos-payment-modal-window") || null;
+const posPaymentModalBody = posPaymentModal?.querySelector(".pos-payment-modal-body") || null;
 const posCheckoutProgress = document.getElementById("posCheckoutProgress");
 const posCheckoutProgressText = document.getElementById("posCheckoutProgressText");
 const posSelectedCard = document.getElementById("posSelectedCard");
@@ -3482,13 +3483,22 @@ function openPaymentModal(options = {}) {
     posPaymentModal.hidden = false;
     posPaymentModal.setAttribute("aria-hidden", "false");
     document.body.classList.add("pos-payment-modal-open");
+    if (posPaymentModalBody) {
+        posPaymentModalBody.scrollTop = 0;
+    }
     scheduleFitPosGrandTotalText(true);
 
     window.requestAnimationFrame(() => {
+        if (posPaymentModalBody && !options.focusPaid) {
+            posPaymentModalBody.scrollTop = 0;
+        }
         const focusTarget = options.focusPaid
             ? (posPaidAmount || posCheckoutButton || posPaymentModalWindow)
             : (posCheckoutButton || posPaidAmount || posPaymentModalWindow);
         focusTarget?.focus?.({ preventScroll: true });
+        if (posPaymentModalBody && !options.focusPaid) {
+            posPaymentModalBody.scrollTop = 0;
+        }
         if (options.focusPaid && posPaidAmount) {
             posPaidAmount.select?.();
         }

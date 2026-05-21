@@ -1407,6 +1407,33 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('aria-label="Pusat Modul"', html)
         self.assertIn('<a href="/workspace/" class="active">Home</a>', html)
 
+    def test_report_module_links_to_existing_feature_pages(self):
+        self.create_user("report_router_super", "pass1234", "super_admin", warehouse_id=1)
+        self.login("report_router_super", "pass1234")
+
+        response = self.client.get("/modul/report/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('href="/kasir/staff-sales"', html)
+        self.assertIn('href="/stock/"', html)
+        self.assertIn('href="/hris/attendance"', html)
+        self.assertIn('href="/hris/report"', html)
+        self.assertNotIn('href="/modul/report/laporan-stok"', html)
+        self.assertNotIn('href="/modul/report/laporan-kehadiran"', html)
+
+        redirect_cases = {
+            "/modul/report/laporan-staff-penjualan": "/kasir/staff-sales",
+            "/modul/report/laporan-stok": "/stock/",
+            "/modul/report/laporan-kehadiran": "/hris/attendance",
+            "/modul/report/laporan-report-karyawan": "/hris/report",
+        }
+        for path, expected_location in redirect_cases.items():
+            with self.subTest(path=path):
+                redirect_response = self.client.get(path, follow_redirects=False)
+                self.assertEqual(redirect_response.status_code, 302)
+                self.assertIn(expected_location, redirect_response.headers.get("Location", ""))
+
     def test_ai_assistant_page_and_chat_use_local_knowledge(self):
         self.login()
 
@@ -1766,6 +1793,21 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('data-pos-header-menu-close', html)
         self.assertIn('function syncPosHeaderMenuBodyState()', html)
         self.assertIn('"pos-ipos-menu-open"', html)
+
+    def test_pos_payment_modal_keeps_scroll_inside_responsive_sheet(self):
+        self.login_pos_user("owner_pos_payment_modal_responsive", "owner")
+
+        response = self.client.get("/kasir/?warehouse=1")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        dashboard_css = Path("static/css/dashboard.css").read_text(encoding="utf-8")
+        self.assertIn('class="pos-payment-modal-body"', html)
+        self.assertIn("const posPaymentModalBody", html)
+        self.assertIn("posPaymentModalBody.scrollTop = 0;", html)
+        self.assertIn("height: min(92dvh", dashboard_css)
+        self.assertIn("@media (max-height: 720px)", dashboard_css)
+        self.assertIn("scrollbar-gutter: stable", dashboard_css)
 
     def test_pos_page_menu_includes_printer_driver_center_link(self):
         self.login_pos_user("owner_pos_driver_menu", "owner")
@@ -9340,6 +9382,18 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("2026-03-30 s/d 2026-04-28", html)
         self.assertIn("2026-04-28", html)
 
+    def test_schedule_page_disables_heavy_page_motion_for_vps(self):
+        self.login()
+
+        response = self.client.get("/schedule/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('const reducedEffects = true;', html)
+        self.assertIn('root.dataset.reducedEffects = "1";', html)
+        self.assertNotIn('root.classList.add("page-motion-enabled")', html)
+        self.assertNotIn('wms-page-motion-seen', html)
+        self.assertNotIn('behavior: "smooth"', html)
+
     def test_hr_role_can_manage_schedule_and_hris(self):
         self.create_user("hr_ops", "pass1234", "hr")
         self.login("hr_ops", "pass1234")
@@ -9351,8 +9405,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Atur Jadwal Live", schedule_html)
         self.assertIn("Master Shift", schedule_html)
         self.assertIn("Display Staf di Board", schedule_html)
-        self.assertIn('>HRIS<', schedule_html)
-        self.assertIn('href="/hris/leave"', schedule_html)
+        self.assertIn("BJAS Attendance", schedule_html)
         self.assertIn('href="/libur/"', schedule_html)
 
         hris_response = self.client.get("/hris/employee")
@@ -10255,7 +10308,6 @@ class WmsRoutesTestCase(unittest.TestCase):
         board_html = board_response.get_data(as_text=True)
         self.assertIn("Pengajuan Tuker Shift", board_html)
         self.assertIn('href="/schedule/swap-request?start=2026-03-30&days=7&warehouse=1"', board_html)
-        self.assertIn('href="/schedule/swap-request" class="sidebar-subtile', board_html)
         self.assertNotIn('action="/schedule/swap-request/save"', board_html)
 
         response = self.client.get("/schedule/swap-request?start=2026-03-30&days=7&warehouse=1")
