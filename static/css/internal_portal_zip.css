@@ -4224,3 +4224,177 @@ body.internal-clean-page-shell .topbar-dropdown-item.is-danger {
         -webkit-overflow-scrolling: touch;
     }
 }
+
+/* Device layout guard.
+   Some tablets, browser zoom levels, and remote desktop sessions report a
+   medium viewport while the available rendered width is much tighter. Force the
+   internal module shell into the safer compact layout before cards/sidebar can
+   squeeze the content column. */
+html[data-theme] body.internal-module-shell .module-header,
+html[data-theme] body.internal-clean-page-shell .module-header,
+body.internal-module-shell .module-header,
+body.internal-clean-page-shell .module-header {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+html[data-theme] body.internal-module-shell :is(.brand, .internal-topbar-left, .internal-topbar-user, .internal-user-pill, .topbar-menu-shell),
+html[data-theme] body.internal-clean-page-shell :is(.brand, .internal-topbar-left, .internal-topbar-user, .internal-user-pill, .topbar-menu-shell),
+body.internal-module-shell :is(.brand, .internal-topbar-left, .internal-topbar-user, .internal-user-pill, .topbar-menu-shell),
+body.internal-clean-page-shell :is(.brand, .internal-topbar-left, .internal-topbar-user, .internal-user-pill, .topbar-menu-shell) {
+    min-width: 0 !important;
+    max-width: 100% !important;
+}
+
+html[data-theme] body.internal-module-shell .internal-user-pill .profile-name,
+html[data-theme] body.internal-clean-page-shell .internal-user-pill .profile-name,
+body.internal-module-shell .internal-user-pill .profile-name,
+body.internal-clean-page-shell .internal-user-pill .profile-name {
+    min-width: 0 !important;
+    max-width: 128px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+@media (max-width: 1180px) {
+    html[data-theme] body.internal-module-shell .module-header,
+    html[data-theme] body.internal-clean-page-shell .module-header,
+    body.internal-module-shell .module-header,
+    body.internal-clean-page-shell .module-header {
+        grid-template-columns: minmax(0, 1fr) auto !important;
+        grid-template-areas:
+            "brand user"
+            "center center" !important;
+        gap: 12px 16px !important;
+        padding: 12px clamp(14px, 3vw, 28px) !important;
+        overflow: visible !important;
+    }
+
+    html[data-theme] body.internal-module-shell .internal-topbar-left,
+    html[data-theme] body.internal-clean-page-shell .internal-topbar-left,
+    body.internal-module-shell .internal-topbar-left,
+    body.internal-clean-page-shell .internal-topbar-left {
+        grid-area: brand !important;
+        width: auto !important;
+        justify-self: start !important;
+        overflow: hidden !important;
+    }
+
+    html[data-theme] body.internal-module-shell .internal-topbar-logo,
+    html[data-theme] body.internal-clean-page-shell .internal-topbar-logo,
+    body.internal-module-shell .internal-topbar-logo,
+    body.internal-clean-page-shell .internal-topbar-logo {
+        grid-area: center !important;
+        width: min(240px, 72vw) !important;
+        height: 42px !important;
+        margin-inline: auto !important;
+        justify-self: center !important;
+    }
+
+    html[data-theme] body.internal-module-shell .internal-topbar-user,
+    html[data-theme] body.internal-clean-page-shell .internal-topbar-user,
+    body.internal-module-shell .internal-topbar-user,
+    body.internal-clean-page-shell .internal-topbar-user {
+        grid-area: user !important;
+        justify-self: end !important;
+    }
+
+    html[data-theme] body.internal-module-shell .page-content.hris-clean-shell,
+    html[data-theme] body.internal-module-shell .breadcrumb-list,
+    html[data-theme] body.internal-module-shell .internal-module-footer,
+    html[data-theme] body.internal-clean-page-shell .breadcrumb-list,
+    html[data-theme] body.internal-clean-page-shell .clean-module-layout,
+    body.internal-module-shell .page-content.hris-clean-shell,
+    body.internal-module-shell .breadcrumb-list,
+    body.internal-module-shell .internal-module-footer,
+    body.internal-clean-page-shell .breadcrumb-list,
+    body.internal-clean-page-shell .clean-module-layout {
+        width: min(100% - 28px, 1500px) !important;
+    }
+
+    html[data-theme] body.internal-module-shell .internal-module-layout,
+    html[data-theme] body.internal-module-shell .module-layout,
+    html[data-theme] body.internal-clean-page-shell .clean-module-layout,
+    body.internal-module-shell .internal-module-layout,
+    body.internal-module-shell .module-layout,
+    body.internal-clean-page-shell .clean-module-layout {
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 14px !important;
+        padding-top: 14px !important;
+    }
+
+    html[data-theme] body.internal-module-shell .info-sidebar,
+    html[data-theme] body.internal-module-shell .hris-module-disclosure,
+    html[data-theme] body.internal-module-shell .information-sidebar-card,
+    html[data-theme] body.internal-clean-page-shell .info-sidebar,
+    html[data-theme] body.internal-clean-page-shell .hris-module-disclosure,
+    html[data-theme] body.internal-clean-page-shell .information-sidebar-card,
+    body.internal-module-shell .info-sidebar,
+    body.internal-module-shell .hris-module-disclosure,
+    body.internal-module-shell .information-sidebar-card,
+    body.internal-clean-page-shell .info-sidebar,
+    body.internal-clean-page-shell .hris-module-disclosure,
+    body.internal-clean-page-shell .information-sidebar-card {
+        position: static !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    html[data-theme] body.internal-module-shell .sidebar-menu,
+    html[data-theme] body.internal-module-shell .hris-module-grid,
+    html[data-theme] body.internal-clean-page-shell .sidebar-menu,
+    html[data-theme] body.internal-clean-page-shell .hris-module-grid,
+    body.internal-module-shell .sidebar-menu,
+    body.internal-module-shell .hris-module-grid,
+    body.internal-clean-page-shell .sidebar-menu,
+    body.internal-clean-page-shell .hris-module-grid {
+        display: flex !important;
+        gap: 8px !important;
+        overflow-x: auto !important;
+        padding: 10px !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    html[data-theme] body.internal-module-shell .sidebar-link,
+    html[data-theme] body.internal-module-shell .hris-module-card,
+    html[data-theme] body.internal-clean-page-shell .sidebar-link,
+    html[data-theme] body.internal-clean-page-shell .hris-module-card,
+    body.internal-module-shell .sidebar-link,
+    body.internal-module-shell .hris-module-card,
+    body.internal-clean-page-shell .sidebar-link,
+    body.internal-clean-page-shell .hris-module-card {
+        width: auto !important;
+        min-width: max-content !important;
+        flex: 0 0 auto !important;
+        border: 1px solid var(--zip-border) !important;
+        border-radius: 10px !important;
+    }
+}
+
+@media (max-width: 860px) {
+    html[data-theme] body.internal-module-shell .summary,
+    html[data-theme] body.internal-module-shell .meta-grid,
+    html[data-theme] body.internal-clean-page-shell .summary,
+    html[data-theme] body.internal-clean-page-shell .meta-grid,
+    body.internal-module-shell .summary,
+    body.internal-module-shell .meta-grid,
+    body.internal-clean-page-shell .summary,
+    body.internal-clean-page-shell .meta-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 560px) {
+    html[data-theme] body.internal-module-shell .summary,
+    html[data-theme] body.internal-module-shell .meta-grid,
+    html[data-theme] body.internal-clean-page-shell .summary,
+    html[data-theme] body.internal-clean-page-shell .meta-grid,
+    body.internal-module-shell .summary,
+    body.internal-module-shell .meta-grid,
+    body.internal-clean-page-shell .summary,
+    body.internal-clean-page-shell .meta-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+}
