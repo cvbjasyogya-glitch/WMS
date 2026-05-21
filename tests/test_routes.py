@@ -1406,6 +1406,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn('href="/workspace/" class="sidebar-subtile active"', html)
         self.assertIn('aria-label="Pusat Modul"', html)
         self.assertIn('<a href="/workspace/" class="active">Home</a>', html)
+        self.assertIn("data-internal-base-footer", html)
+        self.assertIn("Portal Operasional", html)
 
     def test_report_module_links_to_existing_feature_pages(self):
         self.create_user("report_router_super", "pass1234", "super_admin", warehouse_id=1)
@@ -1433,6 +1435,22 @@ class WmsRoutesTestCase(unittest.TestCase):
                 redirect_response = self.client.get(path, follow_redirects=False)
                 self.assertEqual(redirect_response.status_code, 302)
                 self.assertIn(expected_location, redirect_response.headers.get("Location", ""))
+
+    def test_attendance_module_report_links_to_daily_report(self):
+        self.login()
+
+        response = self.client.get("/modul/attendance/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('href="/laporan-harian/"', html)
+        self.assertNotIn('href="/modul/attendance/report"', html)
+        self.assertIn("data-internal-base-footer", html)
+        self.assertIn("BJAS Attendance", html)
+
+        redirect_response = self.client.get("/modul/attendance/report", follow_redirects=False)
+        self.assertEqual(redirect_response.status_code, 302)
+        self.assertIn("/laporan-harian/", redirect_response.headers.get("Location", ""))
 
     def test_ai_assistant_page_and_chat_use_local_knowledge(self):
         self.login()
@@ -26932,6 +26950,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("data-shell-break-timer", html)
+        self.assertIn("data-break-started-epoch-ms", html)
         self.assertIn('data-break-limit-seconds="3600"', html)
         self.assertIn("Istirahat Aktif", html)
         self.assertIn("Sisa istirahat", html)

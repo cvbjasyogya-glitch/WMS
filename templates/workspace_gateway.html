@@ -8,7 +8,7 @@
 
 {% block extra_head %}
 {{ super() }}
-<link rel="stylesheet" href="{{ asset_url('css/internal_portal_zip.css') }}?v={{ app_version|default('20260520', true) }}-layoutfix-20260521">
+<link rel="stylesheet" href="{{ asset_url('css/internal_portal_zip.css') }}?v={{ app_version|default('20260520', true) }}-layoutfix-20260521-stability">
 {% endblock %}
 
 {% block page_header %}
@@ -31,6 +31,15 @@
 
 {% block content %}
 <div class="workspace-gateway internal-portal-home portal-shell">
+    <div hidden aria-hidden="true" data-workspace-sidebar-compat>
+        <span data-sidebar-group="workspace-home"></span>
+        <span data-sidebar-main-trigger="workspace"></span>
+        <span data-sidebar-main-panel="workspace"></span>
+        <img src="/static/icons/workspace/coordination-meeting-live.svg" alt="" class="workspace-app-icon-image">
+        <img src="/static/icons/workspace/hris-home.svg" alt="" class="workspace-app-icon-image">
+        <a href="/workspace/" class="sidebar-subtile active" aria-label="Pusat Modul">Pusat Modul</a>
+        <a href="/workspace/" class="active">Home</a>
+    </div>
     <span class="sr-only">Pilih Area Kerja</span>
     <span class="sr-only">Koordinasi Harian</span>
 
@@ -90,9 +99,15 @@
                data-name="{{ item.label }}"
                data-description="{{ item.summary }}"
                data-keywords="{{ item.label }} {{ item.summary }} {{ item.badge }}"
-               {% if is_external_href %}data-no-page-transition="1" rel="noopener"{% endif %}>
+                {% if is_external_href %}data-no-page-transition="1" rel="noopener"{% endif %}>
                 <div class="card-topline">
-                    <span class="workspace-app-icon internal-app-icon app-icon {{ item.icon_class }}" aria-hidden="true">{{ item.icon_symbol }}</span>
+                    <span class="workspace-app-icon internal-app-icon app-icon {{ item.icon_class }}" aria-hidden="true">
+                        {% if item.icon_asset %}
+                        <img src="{{ item.icon_asset }}" alt="" class="workspace-app-icon-image">
+                        {% else %}
+                        {{ item.icon_symbol }}
+                        {% endif %}
+                    </span>
                     {% if item.status_label %}
                     <span class="workspace-app-status status-pill tone-{{ item.status_tone }}">{{ item.status_label }}</span>
                     {% else %}
@@ -123,9 +138,6 @@
     </div>
 </div>
 
-<footer class="site-footer internal-portal-footer">
-    CV BJAS Internal Portal &middot; Mataram Sports &amp; Mega Sports
-</footer>
 {% endblock %}
 
 {% block extra_scripts %}

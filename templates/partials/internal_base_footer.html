@@ -1,0 +1,33 @@
+{% set footer_path = request.path if request is defined else "" %}
+{% set footer_system = internal_footer_system|default("", true) %}
+{% if not footer_system %}
+    {% if footer_path.startswith('/workspace') %}
+        {% set footer_system = "Portal Operasional" %}
+    {% elif footer_path.startswith('/modul/attendance') or footer_path.startswith('/absen') or footer_path.startswith('/schedule') or footer_path.startswith('/lembur') or footer_path.startswith('/laporan-harian') or footer_path.startswith('/kpi-staff') %}
+        {% set footer_system = "BJAS Attendance" %}
+    {% elif footer_path.startswith('/modul/hris') or footer_path.startswith('/hris') or footer_path.startswith('/libur') %}
+        {% set footer_system = "BJAS HRIS" %}
+    {% elif footer_path.startswith('/modul/wms') or footer_path.startswith('/stock') or footer_path.startswith('/products') or footer_path.startswith('/request') or footer_path.startswith('/transfers') or footer_path.startswith('/inbound') or footer_path.startswith('/outbound') or footer_path.startswith('/so') or footer_path.startswith('/barcode') %}
+        {% set footer_system = "BJAS WMS" %}
+    {% elif footer_path.startswith('/modul/pos') or footer_path.startswith('/kasir') %}
+        {% set footer_system = "BJAS POS" %}
+    {% elif footer_path.startswith('/modul/sales') or footer_path.startswith('/crm') %}
+        {% set footer_system = "BJAS Sales" %}
+    {% elif footer_path.startswith('/modul/finance') %}
+        {% set footer_system = "BJAS Finance" %}
+    {% elif footer_path.startswith('/ai') %}
+        {% set footer_system = "BJAS AI" %}
+    {% elif footer_path.startswith('/announcements') or footer_path.startswith('/notifications') or footer_path.startswith('/chat') %}
+        {% set footer_system = "BJAS Informasi" %}
+    {% else %}
+        {% set footer_system = "Portal Operasional" %}
+    {% endif %}
+{% endif %}
+
+<footer class="internal-base-footer {% if footer_path.startswith('/workspace') %}site-footer internal-portal-footer{% else %}internal-module-footer{% endif %}" data-internal-base-footer data-preserve-gudang-label aria-label="Informasi sistem">
+    <span>ERP-CV.BJAS</span>
+    <span aria-hidden="true">&middot;</span>
+    <strong>{{ footer_system }}</strong>
+    <span aria-hidden="true">&middot;</span>
+    <span>Mataram Sports &amp; Mega Sports</span>
+</footer>

@@ -37,6 +37,9 @@ def _redirect_with_query(target):
     return redirect(f"{target}{separator}{query_string}")
 
 MODULE_ITEM_REDIRECTS = {
+    "attendance": {
+        "report": "/laporan-harian/",
+    },
     "report": {
         "laporan-staff-penjualan": "/kasir/staff-sales",
         "laporan-stok": "/stock/",
@@ -154,13 +157,13 @@ INTERNAL_MODULE_HUBS = {
             _hub_nav("Dashboard", "dashboard", "hris-home", target="/modul/attendance/"),
             _hub_nav("Jadwal Kerja", "jadwal-kerja", "coordination-jadwal", target="/schedule/"),
             _hub_nav("Absen Foto", "absen-foto", "coordination-absen-foto", target="/absen/"),
-            _hub_nav("Report", "report", "coordination-report-harian"),
+            _hub_nav("Report", "report", "coordination-report-harian", target="/laporan-harian/"),
             _hub_nav("Late & Overtime", "late-overtime", "coordination-absen-foto", target="/lembur/"),
         ],
         "cards": [
             _hub_card("Jadwal", "Jadwal Kerja", "Board jadwal dan shift tim per homebase.", "Planner", "blue", "/schedule/"),
             _hub_card("Absen", "Absen Foto", "Clock in, break, dan check out dengan foto.", "Daily", "green", "/absen/"),
-            _hub_card("Report", "Report Kehadiran", "Ringkasan attendance dan laporan harian.", "Report", "blue", "/modul/attendance/report"),
+            _hub_card("Report", "Report Kehadiran", "Ringkasan attendance dan laporan harian.", "Report", "blue", "/laporan-harian/"),
             _hub_card("Overtime", "Late & Overtime", "Pengajuan lembur dan catatan keterlambatan.", "Review", "amber", "/lembur/"),
         ],
     },
@@ -548,7 +551,7 @@ def _build_internal_portal_cards(role):
         "Stok, produk, gudang, transfer barang",
         "Internal App",
         "sage",
-        "wms-stok-produk",
+        "wms-dashboard",
         status_label="Stock alert",
         status_tone="amber",
     )
@@ -624,7 +627,7 @@ def _build_internal_portal_cards(role):
         "User, role, branch, department, audit log",
         "Internal App",
         "blue",
-        "utility-admin",
+        "utility-account-settings",
     )
 
     if not cards:

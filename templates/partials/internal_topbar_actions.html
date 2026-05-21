@@ -1,6 +1,23 @@
 {% set topbar_username = topbar_username|default(username|default(session.get('username', 'guest'), true), true) %}
 {% set topbar_initial = (topbar_username[:1] or "U")|upper %}
 <nav class="user-nav internal-topbar-user" aria-label="Menu pengguna">
+    {% if shell_break_timer is defined and shell_break_timer.active %}
+    <span
+        class="internal-break-chip shell-break-chip {% if shell_break_timer.is_over_limit %}is-over-limit{% endif %}"
+        data-shell-break-timer
+        data-break-started-at="{{ shell_break_timer.started_at_iso }}"
+        data-break-started-epoch-ms="{{ shell_break_timer.started_at_epoch_ms }}"
+        data-break-limit-seconds="{{ shell_break_timer.limit_seconds }}"
+        role="status"
+        aria-live="polite"
+        title="Countdown istirahat aktif"
+    >
+        <span class="shell-break-chip-label">Istirahat Aktif</span>
+        <strong class="shell-break-chip-value" data-shell-break-value>{{ shell_break_timer.countdown_label }}</strong>
+        <span class="shell-break-chip-hint" data-shell-break-hint>{{ shell_break_timer.hint_label }}</span>
+    </span>
+    {% endif %}
+
     <div class="topbar-menu-shell" data-topbar-menu>
         <button
             type="button"

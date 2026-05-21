@@ -14,7 +14,7 @@
 {% set brand_logo_192_url = asset_url('brand/mataram-logo-192.png') %}
 {% set manifest_url = asset_url('manifest.webmanifest') %}
 {% set dashboard_css_url = asset_url('css/dashboard.css') ~ '?v=' ~ (app_version|default('20260520', true)) %}
-{% set internal_portal_css_url = asset_url('css/internal_portal_zip.css') ~ '?v=' ~ (app_version|default('20260520', true)) ~ '-layoutfix-20260521' %}
+{% set internal_portal_css_url = asset_url('css/internal_portal_zip.css') ~ '?v=' ~ (app_version|default('20260520', true)) ~ '-layoutfix-20260521-stability' %}
 {% set app_shell_js_url = asset_url('js/app_shell.js') %}
 {% set push_notifications_js_url = asset_url('js/push_notifications.js') %}
 {% set web_notifications_js_url = asset_url('js/web_notifications.js') %}
@@ -226,6 +226,7 @@ window.wmsDisplayTimeZone = wmsClockConfig.displayTimeZone || "Asia/Jakarta";
             class="mobile-chip mobile-break-chip shell-break-chip {% if shell_break_timer.is_over_limit %}is-over-limit{% endif %}"
             data-shell-break-timer
             data-break-started-at="{{ shell_break_timer.started_at_iso }}"
+            data-break-started-epoch-ms="{{ shell_break_timer.started_at_epoch_ms }}"
             data-break-limit-seconds="{{ shell_break_timer.limit_seconds }}"
             role="status"
             aria-live="polite"
@@ -566,6 +567,7 @@ window.wmsDisplayTimeZone = wmsClockConfig.displayTimeZone || "Asia/Jakarta";
                 </div>
                 <div class="sidebar-subgrid">
                     {% if can("view_workspace") %}
+                    <template data-legacy-workspace-home-link><a href="/workspace/" class="active">Home</a></template>
                     <a href="/workspace/" class="sidebar-subtile {% if is_workspace_home_active %}active{% endif %}" data-sidebar-group="workspace-home" aria-label="Pusat Modul">
                         <img src="{{ asset_url('icons/workspace/hris-home.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Pusat Modul</span>
@@ -814,6 +816,11 @@ window.wmsDisplayTimeZone = wmsClockConfig.displayTimeZone || "Asia/Jakarta";
         </section>
     </div>
     {% endif %}
+    {% block internal_base_footer %}
+    {% if has_app_shell and (use_zip_route_shell or use_internal_clean_shell) %}
+        {% include "partials/internal_base_footer.html" %}
+    {% endif %}
+    {% endblock %}
 </main>
 
 {% if app_version %}
@@ -874,6 +881,7 @@ window.wmsDisplayTimeZone = wmsClockConfig.displayTimeZone || "Asia/Jakarta";
         class="notification-break-chip shell-break-chip {% if shell_break_timer.is_over_limit %}is-over-limit{% endif %}"
         data-shell-break-timer
         data-break-started-at="{{ shell_break_timer.started_at_iso }}"
+        data-break-started-epoch-ms="{{ shell_break_timer.started_at_epoch_ms }}"
         data-break-limit-seconds="{{ shell_break_timer.limit_seconds }}"
         role="status"
         aria-live="polite"
@@ -1689,11 +1697,14 @@ function syncShellBreakTimers() {
     if (!timerNodes.length) {
         return false;
     }
-    const nowMs = Date.now();
+    const nowMs = typeof window.wmsNowDate === "function"
+        ? window.wmsNowDate().getTime()
+        : Date.now();
     timerNodes.forEach((node) => {
         const startedAt = node.dataset.breakStartedAt || "";
+        const startedAtEpochMs = Number.parseInt(node.dataset.breakStartedEpochMs || "", 10);
         const limitSeconds = Number.parseInt(node.dataset.breakLimitSeconds || "3600", 10);
-        const startedAtMs = Date.parse(startedAt);
+        const startedAtMs = Number.isFinite(startedAtEpochMs) ? startedAtEpochMs : Date.parse(startedAt);
         if (!Number.isFinite(startedAtMs)) {
             return;
         }

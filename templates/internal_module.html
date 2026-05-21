@@ -6,7 +6,7 @@
 
 {% block extra_head %}
 {{ super() }}
-<link rel="stylesheet" href="{{ asset_url('css/internal_portal_zip.css') }}?v={{ app_version|default('20260520', true) }}-layoutfix-20260521">
+<link rel="stylesheet" href="{{ asset_url('css/internal_portal_zip.css') }}?v={{ app_version|default('20260520', true) }}-layoutfix-20260521-stability">
 {% endblock %}
 
 {% block page_header %}
@@ -105,8 +105,6 @@
     </section>
 </div>
 {% endif %}
-
-<footer class="internal-module-footer">CV BJAS Internal Portal &middot; Mataram Sports &amp; Mega Sports</footer>
 
 {% if module.toast %}
 <div class="information-toast" role="status">{{ module.toast }}</div>

@@ -142,13 +142,22 @@ def _normalized_restore_usernames(raw_value):
 
 
 def _parse_local_iso_datetime(value):
+    if isinstance(value, datetime):
+        parsed_value = value
+        if parsed_value.tzinfo is not None:
+            parsed_value = parsed_value.astimezone(APP_DISPLAY_TIMEZONE).replace(tzinfo=None)
+        return parsed_value
+
     safe_value = str(value or "").strip()
     if not safe_value:
         return None
     try:
-        return datetime.fromisoformat(safe_value)
+        parsed_value = datetime.fromisoformat(safe_value)
     except ValueError:
         return None
+    if parsed_value.tzinfo is not None:
+        parsed_value = parsed_value.astimezone(APP_DISPLAY_TIMEZONE).replace(tzinfo=None)
+    return parsed_value
 
 
 def _should_use_homebase_ui(path):
@@ -237,7 +246,8 @@ def _build_shell_break_timer_state():
     except (TypeError, ValueError):
         return {"active": False}
 
-    today = datetime.now().date().isoformat()
+    now_local = datetime.now(APP_DISPLAY_TIMEZONE).replace(tzinfo=None)
+    today = now_local.date().isoformat()
     db = get_db()
 
     try:
@@ -245,12 +255,12 @@ def _build_shell_break_timer_state():
             """
             SELECT punch_time, punch_type
             FROM biometric_logs
-            WHERE employee_id=? AND substr(COALESCE(punch_time, ''), 1, 10)=?
+            WHERE employee_id=? AND substr(COALESCE(CAST(punch_time AS TEXT), ''), 1, 10)=?
             ORDER BY punch_time ASC, id ASC
             """,
             (safe_employee_id, today),
         ).fetchall()
-    except sqlite3.OperationalError:
+    except Exception:
         return {"active": False}
 
     open_break_started_at = None
@@ -272,14 +282,16 @@ def _build_shell_break_timer_state():
         return {"active": False}
 
     limit_seconds = 3600
-    elapsed_seconds = max(0, int((datetime.now() - open_break_started_at).total_seconds()))
+    elapsed_seconds = max(0, int((now_local - open_break_started_at).total_seconds()))
     remaining_seconds = max(0, limit_seconds - elapsed_seconds)
     over_limit_seconds = max(0, elapsed_seconds - limit_seconds)
     is_over_limit = over_limit_seconds > 0
+    started_at_epoch_ms = int(open_break_started_at.replace(tzinfo=APP_DISPLAY_TIMEZONE).timestamp() * 1000)
 
     return {
         "active": True,
         "started_at_iso": open_break_started_raw,
+        "started_at_epoch_ms": started_at_epoch_ms,
         "limit_seconds": limit_seconds,
         "elapsed_seconds": elapsed_seconds,
         "remaining_seconds": remaining_seconds,
