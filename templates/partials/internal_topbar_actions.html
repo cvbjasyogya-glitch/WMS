@@ -1,0 +1,113 @@
+{% set topbar_username = topbar_username|default(username|default(session.get('username', 'guest'), true), true) %}
+{% set topbar_initial = (topbar_username[:1] or "U")|upper %}
+<nav class="user-nav internal-topbar-user" aria-label="Menu pengguna">
+    <div class="topbar-menu-shell" data-topbar-menu>
+        <button
+            type="button"
+            class="notification-button internal-icon-button"
+            aria-label="Buka notifikasi"
+            aria-controls="topbarNotificationMenu"
+            aria-expanded="false"
+            data-topbar-menu-trigger
+        >
+            <span aria-hidden="true">&#128276;</span>
+            <span class="notification-dot"></span>
+        </button>
+        <section
+            class="topbar-dropdown topbar-notification-dropdown"
+            id="topbarNotificationMenu"
+            data-topbar-menu-panel
+            data-topbar-notification-panel
+            hidden
+        >
+            <div class="topbar-dropdown-head">
+                <strong>Notifikasi</strong>
+                <a href="/notifications/">Lihat semua</a>
+            </div>
+            <div class="topbar-notification-list" data-topbar-notification-list>
+                <a href="/notifications/" class="topbar-notification-item">
+                    <span aria-hidden="true">&#8226;</span>
+                    <span>Pesanan baru masuk</span>
+                </a>
+                <a href="/stock/" class="topbar-notification-item">
+                    <span aria-hidden="true">&#8226;</span>
+                    <span>Stok produk hampir habis</span>
+                </a>
+                <a href="/laporan-harian/" class="topbar-notification-item">
+                    <span aria-hidden="true">&#8226;</span>
+                    <span>Laporan hari ini tersedia</span>
+                </a>
+                <a href="/crm/" class="topbar-notification-item">
+                    <span aria-hidden="true">&#8226;</span>
+                    <span>Ada pesan/customer baru</span>
+                </a>
+            </div>
+        </section>
+    </div>
+
+    <div class="topbar-menu-shell" data-topbar-menu>
+        <button
+            type="button"
+            class="profile-button internal-user-pill"
+            aria-label="Buka menu profil {{ topbar_username }}"
+            aria-controls="topbarProfileMenu"
+            aria-expanded="false"
+            data-topbar-menu-trigger
+        >
+            <span class="profile-name">{{ topbar_username }}</span>
+            <span class="avatar" aria-hidden="true">{{ topbar_initial }}</span>
+            <span class="dropdown-icon" aria-hidden="true">&#9662;</span>
+        </button>
+        <section
+            class="topbar-dropdown topbar-profile-dropdown"
+            id="topbarProfileMenu"
+            data-topbar-menu-panel
+            hidden
+        >
+            <a href="/account/settings" class="topbar-dropdown-item">
+                <span aria-hidden="true">&#128100;</span>
+                <span>Profil Saya</span>
+            </a>
+            <a href="/account/settings" class="topbar-dropdown-item">
+                <span aria-hidden="true">&#9881;</span>
+                <span>Pengaturan Akun</span>
+            </a>
+            <a href="/reset" class="topbar-dropdown-item">
+                <span aria-hidden="true">&#128274;</span>
+                <span>Ubah Password</span>
+            </a>
+            <button type="button" class="topbar-dropdown-item" data-topbar-light-mode>
+                <span aria-hidden="true">&#9789;</span>
+                <span>Mode Tampilan</span>
+            </button>
+            <a href="/hris/helpdesk" class="topbar-dropdown-item">
+                <span aria-hidden="true">?</span>
+                <span>Bantuan</span>
+            </a>
+
+            {% if can is defined and can("view_admin") %}
+            <div class="topbar-dropdown-divider"></div>
+            <a href="/admin/warehouses" class="topbar-dropdown-item">
+                <span aria-hidden="true">&#127970;</span>
+                <span>Data Toko</span>
+            </a>
+            <a href="/admin/" class="topbar-dropdown-item">
+                <span aria-hidden="true">&#128101;</span>
+                <span>Manajemen User</span>
+            </a>
+            <a href="/audit/" class="topbar-dropdown-item">
+                <span aria-hidden="true">&#128202;</span>
+                <span>Aktivitas Saya</span>
+            </a>
+            {% endif %}
+
+            <div class="topbar-dropdown-divider"></div>
+            <form method="GET" action="/logout" class="topbar-logout-form">
+                <button type="submit" class="topbar-dropdown-item is-danger">
+                    <span aria-hidden="true">&#128682;</span>
+                    <span>Keluar</span>
+                </button>
+            </form>
+        </section>
+    </div>
+</nav>

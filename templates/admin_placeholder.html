@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}{{ placeholder_title }} | ERP-CV.BJAS{% endblock %}
+{% block eyebrow %}Administrasi Sistem{% endblock %}
+{% block page_title %}{{ placeholder_title }}{% endblock %}
+{% block page_subtitle %}{{ placeholder_summary }}{% endblock %}
+{% block page_content_class %}page-content-bleed{% endblock %}
+{% block body_class %}admin-suite-shell{% endblock %}
+
+{% block content %}
+{% include "partials/admin_local_nav.html" %}
+
+<section class="box empty-state">
+    <div class="section-title">
+        <div>
+            <h2>Halaman belum tersedia</h2>
+            <p>{{ placeholder_label }} sedang dalam pengembangan.</p>
+        </div>
+    </div>
+    <p class="helper-text">Menu sudah disiapkan supaya struktur modul Setting rapi, tapi fiturnya belum diaktifkan di produksi.</p>
+</section>
+{% endblock %}

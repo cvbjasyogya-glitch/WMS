@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}{{ module.label }} | ERP-CV.BJAS{% endblock %}
+{% block body_class %}internal-module-shell{% if module.key == 'wms' %} internal-wms-module-shell{% endif %}{% endblock %}
+{% block page_content_class %}hris-clean-shell information-clean-shell internal-hub-shell{% endblock %}
+
+{% block extra_head %}
+{{ super() }}
+<link rel="stylesheet" href="{{ asset_url('css/internal_portal_zip.css') }}?v={{ app_version|default('20260520', true) }}">
+{% endblock %}
+
+{% block page_header %}
+<header class="internal-app-topbar module-header" aria-label="Navigasi modul internal">
+    <a class="brand internal-topbar-left" href="/workspace/" aria-label="Kembali ke CV BJAS Internal Portal">
+        <span class="brand-logo is-fallback internal-brand-pill" aria-hidden="true">
+            <span class="brand-fallback">CV BJAS</span>
+        </span>
+        <span class="brand-divider internal-topbar-separator" aria-hidden="true"></span>
+        <span class="brand-logo brand-logo-wide is-fallback internal-brand-pill" aria-hidden="true">
+            <span class="brand-fallback">Mataram Sports</span>
+        </span>
+    </a>
+    <a href="/workspace/" class="header-center-logo internal-topbar-logo" aria-label="Pusat aplikasi CV BJAS">
+        <img src="{{ asset_url('assets/internal_portal/header-center-logo.svg') }}" alt="CV Berkah Jaya Abadi Sports">
+    </a>
+    {% include "partials/internal_topbar_actions.html" %}
+</header>
+<nav class="internal-breadcrumb breadcrumb-bar" aria-label="Breadcrumb">
+    <ol class="breadcrumb-list">
+        <li><a href="/workspace/">Beranda</a></li>
+        <li aria-current="page">{{ module.label }}</li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
+{% if module.unavailable %}
+<section class="internal-module-panel information-panel content-panel">
+    <div class="information-panel-head content-header">
+        <p>{{ module.eyebrow }}</p>
+        <h1>{{ module.unavailable_label or module.title }}</h1>
+        <span>{{ module.unavailable_message }}</span>
+    </div>
+
+    <div class="information-policy-grid internal-hub-card-grid card-grid card-grid-two" style="grid-template-columns: minmax(0, 1fr); max-width: 860px;">
+        <div class="information-policy-card internal-hub-card content-card is-featured" style="min-height: 220px; cursor: default;">
+            <div>
+                <span class="information-policy-scope">Dalam pengembangan</span>
+                <h2>Halaman belum tersedia</h2>
+                <p>Gunakan tombol Beranda di header untuk kembali ke workspace atau buka halaman induk modul.</p>
+            </div>
+            <strong class="information-policy-badge tone-amber">Preview</strong>
+        </div>
+    </div>
+
+    <p class="information-panel-footnote">Routing ini masih menunggu halaman fitur aktif. <a href="{{ module.back_href or '/workspace/' }}">Kembali ke halaman induk modul</a>.</p>
+</section>
+{% else %}
+<div class="internal-module-layout module-layout">
+    <aside class="internal-module-nav information-module-nav info-sidebar">
+        <section class="table-box hris-module-disclosure information-sidebar-card" aria-label="Menu {{ module.label }}">
+            <div class="hris-module-summary information-sidebar-head sidebar-title">
+                <div class="hris-module-summary-copy">
+                    <span>Modul</span>
+                    <strong>{{ module.label }}</strong>
+                </div>
+            </div>
+            <div class="hris-module-summary-body">
+                <div class="cards hris-module-grid sidebar-menu">
+                    {% for item in module.nav %}
+                    <a href="{{ item.href }}" class="card hris-module-card {% if item.active %}active is-active {% endif %}sidebar-link">
+                        <span class="hris-module-nav-icon sidebar-icon {{ item.icon_class }}" aria-hidden="true">{{ item.icon_symbol }}</span>
+                        <span class="hris-module-card-copy">
+                            <h2>{{ item.label }}</h2>
+                            {% if item.note %}
+                            <small>{{ item.note }}</small>
+                            {% endif %}
+                        </span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </section>
+    </aside>
+
+    <section class="internal-module-panel information-panel content-panel">
+        <div class="information-panel-head content-header">
+            <p>{{ module.eyebrow }}</p>
+            <h1>{{ module.title }}</h1>
+            <span>{{ module.description }}</span>
+        </div>
+
+        <div class="information-policy-grid internal-hub-card-grid card-grid card-grid-two">
+            {% for card in module.cards %}
+            <a href="{{ card.target or module.selected.target or '/workspace/' }}" class="information-policy-card internal-hub-card content-card clickable-card {% if loop.first %}is-featured{% endif %}">
+                <div>
+                    <span class="information-policy-scope">{{ card.scope }}</span>
+                    <h2>{{ card.title }}</h2>
+                    <p>{{ card.summary }}</p>
+                </div>
+                <strong class="information-policy-badge tone-{{ card.tone }}">{{ card.badge }}</strong>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+{% endif %}
+
+<footer class="internal-module-footer">CV BJAS Internal Portal &middot; Mataram Sports &amp; Mega Sports</footer>
+
+{% if module.toast %}
+<div class="information-toast" role="status">{{ module.toast }}</div>
+{% endif %}
+{% endblock %}
