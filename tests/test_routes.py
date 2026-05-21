@@ -1833,6 +1833,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("background: #ffffff !important;", invoice_html)
         self.assertIn(".manual-total-box .manual-total-row:last-child {", invoice_html)
         self.assertIn("background: #eff6ff !important;", invoice_html)
+        self.assertIn(".manual-table thead { display: table-header-group; }", invoice_html)
+        self.assertIn(".manual-table tbody tr { page-break-inside: avoid; break-inside: avoid; }", invoice_html)
+        self.assertIn("print-color-adjust: exact;", invoice_html)
         self.assertIn('href="/kasir/surat-jalan/manual"', invoice_html)
         self.assertIn("/static/js/pos_manual_document_draft.js", invoice_html)
 
@@ -1852,6 +1855,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("border-top: 1px solid #214e79 !important;", delivery_html)
         self.assertIn("font-family: Arial", delivery_html)
         self.assertIn("@page { size: A4 portrait; margin: 10mm; }", delivery_html)
+        self.assertIn("color-scheme: light;", delivery_html)
+        self.assertIn("min-width: 0 !important;", delivery_html)
         self.assertIn("Cetak / Simpan PDF", delivery_html)
         self.assertIn("/static/js/pos_manual_document_draft.js", delivery_html)
 
@@ -1915,6 +1920,16 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Titip ke bagian receiving.", delivery_html)
         self.assertIn("3 qty kirim", delivery_html)
 
+        invoice_print_response = self.client.get(f"/kasir/invoice/{receipt_no}/print")
+        self.assertEqual(invoice_print_response.status_code, 200)
+        invoice_print_html = invoice_print_response.get_data(as_text=True)
+        self.assertIn("@page { size: A4 portrait; margin: 10mm; }", invoice_print_html)
+        self.assertIn("color-scheme: light;", invoice_print_html)
+        self.assertIn("table-layout: fixed;", invoice_print_html)
+        self.assertIn("display: table-header-group;", invoice_print_html)
+        self.assertIn("page-break-inside: avoid;", invoice_print_html)
+        self.assertIn("print-color-adjust: exact;", invoice_print_html)
+
         print_response = self.client.get(f"/kasir/surat-jalan/{receipt_no}/print")
         self.assertEqual(print_response.status_code, 200)
         print_html = print_response.get_data(as_text=True)
@@ -1928,6 +1943,8 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("@page { size: A4 portrait; margin: 10mm; }", print_html)
         self.assertIn("display: table-header-group;", print_html)
         self.assertIn("font-family: Arial, \"Helvetica Neue\", sans-serif;", print_html)
+        self.assertIn("color-scheme: light;", print_html)
+        self.assertIn("print-color-adjust: exact;", print_html)
 
     def test_pos_printer_driver_center_lists_official_driver_links(self):
         self.login_pos_user("owner_pos_driver_center", "owner")
@@ -6742,8 +6759,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         }
 
         inspected_html = {}
+        inspected_command = {}
 
         def fake_browser_run(command, capture_output, text, timeout, check):
+            inspected_command["argv"] = list(command)
             pdf_arg = next(argument for argument in command if argument.startswith("--print-to-pdf="))
             pdf_path = pdf_arg.split("=", 1)[1]
             html_uri = command[-1]
@@ -6770,13 +6789,18 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue(pdf_bytes.startswith(b"%PDF-1.4"))
         self.assertIn("receipt-paper", inspected_html["payload"])
         self.assertIn("pdf-mode", inspected_html["payload"])
-        self.assertIn('const receiptPerformanceMode = "full"', inspected_html["payload"])
+        self.assertIn("print-color-adjust: exact;", inspected_html["payload"])
+        self.assertIn('id="receipt-performance-mode-data">"full"</script>', inspected_html["payload"])
+        self.assertIn('const receiptPerformanceMode = readReceiptJsonData("receipt-performance-mode-runtime-data", "");', inspected_html["payload"])
         self.assertIn("POS-HTML-20260409-0001", inspected_html["payload"])
         self.assertIn("Antonio", inspected_html["payload"])
         self.assertIn("Kasir / Sales", inspected_html["payload"])
         self.assertIn("Simpan nota ini untuk klaim garansi dan layanan Mataram Sports.", inspected_html["payload"])
         self.assertNotIn("Kembali ke Log", inspected_html["payload"])
         self.assertNotIn("Simpan sebagai PDF", inspected_html["payload"])
+        self.assertIn("--allow-file-access-from-files", inspected_command["argv"])
+        self.assertIn("--run-all-compositor-stages-before-draw", inspected_command["argv"])
+        self.assertIn("--virtual-time-budget=1000", inspected_command["argv"])
 
     def test_generate_pos_receipt_pdf_forces_single_page_a4_customer_layout(self):
         self.app.config.update(
@@ -6858,7 +6882,9 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("pdf-mode", inspected_html["payload"])
         self.assertIn('<body class="pdf-mode">', inspected_html["payload"])
         self.assertNotIn('<body class="thermal-layout', inspected_html["payload"])
-        self.assertIn('const receiptLayout = "a4";', inspected_html["payload"])
+        self.assertIn('id="receipt-layout-data">"a4"</script>', inspected_html["payload"])
+        self.assertIn('const receiptLayout = readReceiptJsonData("receipt-layout-data", "");', inspected_html["payload"])
+        self.assertIn("print-color-adjust: exact;", inspected_html["payload"])
 
     def test_generate_pos_receipt_pdf_html_renderer_falls_back_to_legacy_pdf(self):
         self.app.config.update(
@@ -8468,7 +8494,7 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertTrue(all("Ref:" in message for message in messages))
         self.assertTrue(all("Dikirim:" in message for message in messages))
 
-    def test_portal_login_otp_sends_whatsapp_again_after_successful_login(self):
+    def test_portal_login_otp_reused_once_per_day_for_known_device(self):
         self.app.config.update(PORTAL_LOGIN_OTP_DEFAULT_REQUIRED=False)
         self.create_user(
             "otp_next_session_user",
@@ -8513,13 +8539,31 @@ class WmsRoutesTestCase(unittest.TestCase):
             )
 
         self.assertEqual(second_response.status_code, 302)
-        self.assertIn("/login/otp", second_response.headers["Location"])
-        self.assertEqual(mocked_whatsapp.call_count, 2)
-        messages = [call.args[1] for call in mocked_whatsapp.call_args_list]
-        self.assertNotEqual(messages[0], messages[1])
-        self.assertTrue(all("Ref:" in message for message in messages))
+        self.assertIn("/workspace/", second_response.headers["Location"])
+        self.assertEqual(mocked_whatsapp.call_count, 1)
 
         with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get("username"), "otp_next_session_user")
+            self.assertNotIn("pending_login_otp_user_id", sess)
+
+        new_device_client = self.app.test_client()
+        with patch("routes.auth.send_whatsapp", return_value=True) as mocked_new_device_whatsapp:
+            new_device_response = new_device_client.post(
+                "/login",
+                data={"username": "otp_next_session_user", "password": "pass1234"},
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Linux; Android 13) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"
+                    ),
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(new_device_response.status_code, 302)
+        self.assertIn("/login/otp", new_device_response.headers["Location"])
+        mocked_new_device_whatsapp.assert_called_once()
+        with new_device_client.session_transaction() as sess:
             self.assertNotIn("user_id", sess)
             self.assertTrue(sess.get("pending_login_otp_user_id"))
 
@@ -8983,6 +9027,14 @@ class WmsRoutesTestCase(unittest.TestCase):
         )
         self.assertIn(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS login_otp_code_hash TEXT",
+            fake_db.statements,
+        )
+        self.assertIn(
+            "ALTER TABLE user_login_devices ADD COLUMN IF NOT EXISTS otp_verified_at TIMESTAMP",
+            fake_db.statements,
+        )
+        self.assertIn(
+            "ALTER TABLE user_login_devices ADD COLUMN IF NOT EXISTS otp_verified_date TEXT",
             fake_db.statements,
         )
         self.assertIn(
@@ -29008,6 +29060,10 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertIn("Tanda Tangan Pengesahan", approval_html)
         self.assertIn(f'name="return_to" value="/hris/documents/approval/{document["id"]}"', approval_html)
         self.assertIn(f'action="/hris/documents/sign/{document["id"]}"', approval_html)
+        self.assertIn("@page { size: A4 portrait; margin: 10mm; }", approval_html)
+        self.assertIn(".document-approval-preview-stage,", approval_html)
+        self.assertIn(".document-approval-sign-form {", approval_html)
+        self.assertIn("print-color-adjust: exact;", approval_html)
         self.assertIn('data-document-signature-feedback', approval_html)
         self.assertNotIn('window.alert("Tanda tangan digital belum diisi.")', approval_html)
 
@@ -34081,6 +34137,72 @@ class WmsRoutesTestCase(unittest.TestCase):
 
         owner_response = self.client.get("/stock/barcode/auth-check", follow_redirects=False)
         self.assertEqual(owner_response.status_code, 204)
+
+    def test_barcode_public_host_auth_check_skips_canonical_redirect(self):
+        self.app.config.update(
+            CANONICAL_HOST="portal.cvbjas.com",
+            ALLOWED_HOSTS=["portal.cvbjas.com"],
+            BARCODE_PUBLIC_HOSTS=["barcode.cvbjas.com"],
+        )
+
+        response = self.client.get(
+            "/stock/barcode/auth-check",
+            base_url="https://barcode.cvbjas.com",
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertNotEqual(response.status_code, 308)
+
+    def test_barcode_public_sso_redirect_requires_role_and_safe_target(self):
+        self.app.config.update(BARCODE_PUBLIC_HOSTS=["barcode.cvbjas.com"])
+
+        guest_response = self.client.get(
+            "/stock/barcode/sso?target=https%3A%2F%2Fbarcode.cvbjas.com%2F",
+            follow_redirects=False,
+        )
+        self.assertEqual(guest_response.status_code, 302)
+        self.assertIn("/login", guest_response.headers.get("Location", ""))
+
+        self.create_user("admin_barcode_sso", "pass1234", "admin", warehouse_id=1)
+        self.login("admin_barcode_sso", "pass1234")
+        admin_response = self.client.get(
+            "/stock/barcode/sso?target=https%3A%2F%2Fbarcode.cvbjas.com%2F",
+            follow_redirects=False,
+        )
+        self.assertEqual(admin_response.status_code, 302)
+        self.assertIn("/stock/", admin_response.headers.get("Location", ""))
+
+        self.logout()
+        self.create_user("owner_barcode_sso", "pass1234", "owner")
+        self.login("owner_barcode_sso", "pass1234")
+        owner_response = self.client.get(
+            "/stock/barcode/sso?target=https%3A%2F%2Fbarcode.cvbjas.com%2F",
+            follow_redirects=False,
+        )
+        self.assertEqual(owner_response.status_code, 302)
+        self.assertEqual(owner_response.headers.get("Location"), "https://barcode.cvbjas.com/")
+
+        unsafe_response = self.client.get(
+            "/stock/barcode/sso?target=https%3A%2F%2Fevil.example%2F",
+            follow_redirects=False,
+        )
+        self.assertEqual(unsafe_response.status_code, 302)
+        self.assertEqual(unsafe_response.headers.get("Location"), "https://barcode.cvbjas.com/")
+
+    def test_barcode_nginx_config_protects_static_site_with_portal_auth_request(self):
+        config_text = Path("deploy/nginx/barcode.cvbjas.com.conf").read_text(encoding="utf-8")
+        bootstrap_text = Path("deploy/nginx/barcode.cvbjas.com.bootstrap.conf").read_text(encoding="utf-8")
+
+        for nginx_text in (config_text, bootstrap_text):
+            self.assertIn("location = /__barcode_auth", nginx_text)
+            self.assertIn("proxy_pass http://wms_app/stock/barcode/auth-check;", nginx_text)
+            self.assertIn("proxy_set_header Cookie $http_cookie;", nginx_text)
+            self.assertIn("auth_request /__barcode_auth;", nginx_text)
+            self.assertIn(
+                "https://portal.cvbjas.com/login?next=/stock/barcode/sso%3Ftarget%3Dhttps%253A%252F%252Fbarcode.cvbjas.com%252F",
+                nginx_text,
+            )
 
     def test_barcode_items_endpoint_rejects_admin_and_returns_owner_payload(self):
         self.create_user("owner_barcode_items", "pass1234", "owner")

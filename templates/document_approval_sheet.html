@@ -382,17 +382,110 @@
         .document-approval-preview-frame iframe { min-height: 54vh; }
     }
     @media print {
+        @page { size: A4 portrait; margin: 10mm; }
+        html,
+        body {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        body * {
+            box-shadow: none !important;
+            text-shadow: none !important;
+            animation: none !important;
+            transition: none !important;
+        }
         .page-hero,
         .page-actions-desktop-slot,
         .mobile-command-deck,
         .flash-stack,
+        .document-approval-preview-stage,
+        .document-approval-sign-pad,
+        .document-approval-sign-help,
         .document-approval-sign-actions { display: none !important; }
+        .document-approval-sheet-page,
+        .document-approval-sheet {
+            max-width: none !important;
+            display: block !important;
+        }
+        .document-approval-masthead {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            padding: 0 0 14px !important;
+            border-radius: 0 !important;
+            border-bottom: 2px solid #1d4ed8;
+            background: #ffffff !important;
+            color: #0f172a !important;
+        }
+        .document-approval-brand-mark {
+            width: 54px;
+            height: 54px;
+            background: #ffffff !important;
+            border: 1px solid #dbe3f0 !important;
+        }
+        .document-approval-brand-mark img {
+            width: 40px;
+            height: 40px;
+        }
+        .document-approval-kicker,
+        .document-approval-masthead h2,
+        .document-approval-masthead p,
+        .document-approval-titleblock h2,
+        .document-approval-paper-head h3,
+        .document-approval-panel-head h3 {
+            color: #0f172a !important;
+        }
+        .document-approval-titleblock,
+        .document-approval-paper-head {
+            max-width: none;
+            margin-bottom: 12px;
+            text-align: left;
+        }
+        .document-approval-stat-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .document-approval-stat-card,
+        .document-approval-chip,
+        .document-approval-panel,
+        .document-approval-sign-section {
+            border-color: #dbe3f0 !important;
+            background: #ffffff !important;
+        }
+        .document-approval-stat-card {
+            min-height: 0;
+            padding: 10px 12px;
+            border-radius: 10px;
+        }
+        .document-approval-stat-card strong {
+            font-size: 13px;
+        }
+        .document-approval-preview-foot {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .document-approval-detail-grid {
+            grid-template-columns: 1fr;
+            gap: 12px;
+        }
         .document-approval-workboard,
         .document-approval-paper,
         .document-approval-panel,
         .document-approval-sign-section {
+            padding: 0 !important;
+            border-radius: 0 !important;
             box-shadow: none;
             break-inside: avoid;
+        }
+        .document-approval-paper,
+        .document-approval-sign-section {
+            border: 0 !important;
+            background: #ffffff !important;
+        }
+        .document-approval-sign-form {
+            display: none !important;
         }
     }
 </style>

@@ -144,7 +144,9 @@
     .manual-customer-box { font-size: 12px; color: #1f2937; }
     .manual-customer-box strong { display: block; margin-bottom: 4px; }
     .manual-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+    .manual-table thead { display: table-header-group; }
     .manual-table thead th { background: #214e79; color: #ffffff; padding: 8px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; }
+    .manual-table tbody tr { page-break-inside: avoid; break-inside: avoid; }
     .manual-table tbody td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
     .manual-amounts { display: grid; grid-template-columns: 1fr 260px; gap: 18px; margin-top: 16px; }
     .manual-pay-info { font-size: 12px; color: #1f2937; }
@@ -163,6 +165,11 @@
 
     @media print {
         @page { size: A4 portrait; margin: 10mm; }
+        html {
+            color-scheme: light;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
         body { background: #ffffff !important; }
         body > *:not(.layout) { display: none !important; }
         .sidebar,
@@ -202,6 +209,12 @@
             color: #0f172a !important;
             font-family: Arial, "Helvetica Neue", sans-serif !important;
             font-weight: 500 !important;
+        }
+        .manual-table {
+            table-layout: fixed !important;
+        }
+        .manual-table tbody td {
+            overflow-wrap: anywhere !important;
         }
         .manual-topbar,
         .manual-total-box,

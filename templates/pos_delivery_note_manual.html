@@ -76,6 +76,11 @@
 
     @media print {
         @page { size: A4 portrait; margin: 10mm; }
+        html {
+            color-scheme: light;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
         body { background: #ffffff !important; }
         body > *:not(.layout) { display: none !important; }
         .sidebar,
@@ -123,6 +128,10 @@
         .manual-delivery-table-wrap {
             overflow: visible !important;
             border-color: #dbe3f0 !important;
+        }
+        .manual-delivery-table {
+            min-width: 0 !important;
+            table-layout: fixed !important;
         }
         .manual-delivery-table thead th {
             background: #ffffff !important;

@@ -218,8 +218,8 @@
                 <label><input type="checkbox" name="notify_whatsapp"> Notifikasi WhatsApp</label>
             </div>
             <div>
-                <label><input type="checkbox" name="login_otp_required" {% if default_otp_required %}checked{% endif %}> Wajib OTP setiap login</label>
-                <small class="helper-text">Kode 5 digit dikirim ke WhatsApp atau email terdaftar setelah password benar.</small>
+                <label><input type="checkbox" name="login_otp_required" {% if default_otp_required %}checked{% endif %}> Wajib OTP harian per perangkat</label>
+                <small class="helper-text">Perangkat baru tetap wajib OTP. Perangkat yang sudah lolos OTP tidak diminta lagi sampai ganti hari.</small>
             </div>
         </div>
         <div class="split-actions stack-gap-md">
@@ -311,8 +311,8 @@
                     </div>
                     <div>
                         {% set user_otp_required = default_otp_required if u.login_otp_required is not defined or u.login_otp_required is none else u.login_otp_required %}
-                        <label><input type="checkbox" name="login_otp_required" {% if user_otp_required %}checked{% endif %}> Wajib OTP setiap login</label>
-                        <small class="helper-text">Matikan hanya untuk akun perangkat internal yang benar-benar dipercaya.</small>
+                        <label><input type="checkbox" name="login_otp_required" {% if user_otp_required %}checked{% endif %}> Wajib OTP harian per perangkat</label>
+                        <small class="helper-text">Perangkat baru tetap wajib OTP. Matikan hanya untuk akun perangkat internal yang benar-benar dipercaya.</small>
                     </div>
                     <div>
                         <label>Password Baru</label>

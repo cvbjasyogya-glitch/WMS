@@ -535,11 +535,20 @@ def _is_sms_public_host(app, candidate_host):
     return _is_allowed_host(candidate_host, sms_hosts)
 
 
+def _is_barcode_public_host(app, candidate_host):
+    barcode_hosts = app.config.get("BARCODE_PUBLIC_HOSTS") or []
+    if not barcode_hosts:
+        return False
+    return _is_allowed_host(candidate_host, barcode_hosts)
+
+
 def _get_public_host_mode(app, candidate_host):
     if _is_recruitment_public_host(app, candidate_host):
         return "recruitment"
     if _is_sms_public_host(app, candidate_host):
         return "sms"
+    if _is_barcode_public_host(app, candidate_host):
+        return "barcode"
     return ""
 
 
@@ -899,7 +908,11 @@ def create_app():
 
     @app.before_request
     def enforce_canonical_host():
-        if _is_recruitment_public_host(app, request.host) or _is_sms_public_host(app, request.host):
+        if (
+            _is_recruitment_public_host(app, request.host)
+            or _is_sms_public_host(app, request.host)
+            or _is_barcode_public_host(app, request.host)
+        ):
             return
 
         canonical_location = _canonical_request_location(app)
@@ -916,10 +929,13 @@ def create_app():
         allowed_hosts = app.config.get("ALLOWED_HOSTS") or []
         recruitment_hosts = app.config.get("RECRUITMENT_PUBLIC_HOSTS") or []
         sms_hosts = app.config.get("SMS_PUBLIC_HOSTS") or []
+        barcode_hosts = app.config.get("BARCODE_PUBLIC_HOSTS") or []
         if recruitment_hosts:
             allowed_hosts = list(allowed_hosts) + list(recruitment_hosts)
         if sms_hosts:
             allowed_hosts = list(allowed_hosts) + list(sms_hosts)
+        if barcode_hosts and allowed_hosts:
+            allowed_hosts = list(allowed_hosts) + list(barcode_hosts)
         canonical_host_name = _normalized_host_name(app.config.get("CANONICAL_HOST"))
         if canonical_host_name and canonical_host_name not in {
             _normalized_host_name(item)
@@ -983,6 +999,27 @@ def create_app():
             return redirect(url_for("sms_storage.home"), code=302)
 
         return "Endpoint tidak tersedia di domain sms", 404
+
+    @app.before_request
+    def route_barcode_public_host():
+        if not _is_barcode_public_host(app, request.host):
+            return
+
+        request_path = request.path or "/"
+        if (
+            request_path.startswith("/stock/barcode/auth-check")
+            or request_path.startswith("/stock/barcode/sso")
+            or request_path.startswith("/login")
+            or request_path.startswith("/logout")
+            or request_path.startswith("/static/")
+            or request.endpoint in {"health", "ready"}
+        ):
+            return
+
+        if request.method in {"GET", "HEAD", "OPTIONS"}:
+            return redirect(url_for("auth.login"), code=302)
+
+        return "Endpoint tidak tersedia di domain barcode", 404
 
     @app.before_request
     def redirect_sms_storage_to_public_host():

@@ -4,7 +4,7 @@ import os
 import re
 from datetime import datetime
 from io import StringIO
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from uuid import uuid4
 
 from flask import Blueprint, Response, current_app, g, render_template, request, session, redirect, flash, jsonify
@@ -782,6 +782,48 @@ def _require_barcode_studio_access(json_mode=False):
 
     flash(message, "error")
     return redirect("/stock/")
+
+
+def _normalize_barcode_public_host(value):
+    candidate = str(value or "").strip()
+    if not candidate:
+        return ""
+    if "://" in candidate:
+        parsed = urlsplit(candidate)
+        return (parsed.hostname or "").strip().lower().rstrip(".")
+    return candidate.split(":", 1)[0].strip().lower().rstrip(".")
+
+
+def _barcode_public_hosts():
+    return [
+        _normalize_barcode_public_host(host)
+        for host in (current_app.config.get("BARCODE_PUBLIC_HOSTS") or [])
+        if _normalize_barcode_public_host(host)
+    ]
+
+
+def _default_barcode_public_url():
+    hosts = _barcode_public_hosts()
+    return f"https://{hosts[0]}/" if hosts else "/stock/barcode"
+
+
+def _safe_barcode_public_redirect_target(raw_target):
+    candidate = str(raw_target or "").strip()
+    if not candidate:
+        return ""
+
+    parsed = urlsplit(candidate)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return ""
+
+    allowed_hosts = set(_barcode_public_hosts())
+    if _normalize_barcode_public_host(parsed.hostname) not in allowed_hosts:
+        return ""
+
+    path = parsed.path or "/"
+    query = f"?{parsed.query}" if parsed.query else ""
+    fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+    return f"{parsed.scheme}://{parsed.netloc}{path}{query}{fragment}"
 
 
 def _extract_stock_date_prefix(value):
@@ -1764,6 +1806,16 @@ def stock_barcode_static_auth_check():
         return Response("Akses barcode ditolak", status=403)
 
     return Response(status=204)
+
+
+@stock_bp.route("/barcode/sso")
+def stock_barcode_public_sso():
+    access_denied = _require_barcode_studio_access()
+    if access_denied:
+        return access_denied
+
+    target = _safe_barcode_public_redirect_target(request.args.get("target"))
+    return redirect(target or _default_barcode_public_url())
 
 
 @stock_bp.route("/barcode/templates", methods=["POST"])

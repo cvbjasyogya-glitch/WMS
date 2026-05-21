@@ -5768,7 +5768,7 @@ def _fetch_recent_pos_sales(db, limit=18):
             {
                 "receipt_no": row["receipt_no"],
                 "sale_date": row["sale_date"],
-                "created_time_label": _format_pos_time_label(row["created_at"], reference_date=row.get("sale_date")),
+                "created_time_label": _format_pos_time_label(row["created_at"], reference_date=row["sale_date"]),
                 "customer_name": row["customer_name"],
                 "warehouse_name": row["warehouse_name"],
             }

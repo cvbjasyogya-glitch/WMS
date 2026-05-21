@@ -6,6 +6,11 @@
     <style>
         @page { size: A4 portrait; margin: 10mm; }
         * { box-sizing: border-box; }
+        html {
+            color-scheme: light;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
         html, body {
             margin: 0;
             padding: 0;
@@ -289,6 +294,7 @@
                 background: #ffffff !important;
                 margin: 0 !important;
                 padding: 0 !important;
+                color: #0f172a !important;
             }
             body * {
                 box-shadow: none !important;
@@ -300,6 +306,10 @@
                 max-width: none;
                 border: none;
             }
+            .content {
+                gap: 14px;
+                padding: 16px 0 0;
+            }
             .topbar,
             .document-code,
             .summary-bar,
@@ -308,6 +318,9 @@
                 print-color-adjust: exact;
             }
             .table-wrap { overflow: visible; }
+            table {
+                min-width: 0 !important;
+            }
         }
     </style>
 </head>

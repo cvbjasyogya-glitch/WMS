@@ -70,11 +70,15 @@ def _ensure_portal_auth_schema(db):
                 label TEXT,
                 first_ip TEXT,
                 last_ip TEXT,
+                otp_verified_at TIMESTAMP,
+                otp_verified_date TEXT,
                 first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id, device_hash)
             )
             """,
+            "ALTER TABLE user_login_devices ADD COLUMN IF NOT EXISTS otp_verified_at TIMESTAMP",
+            "ALTER TABLE user_login_devices ADD COLUMN IF NOT EXISTS otp_verified_date TEXT",
             "CREATE INDEX IF NOT EXISTS idx_user_login_devices_user ON user_login_devices(user_id, last_seen_at DESC)",
         )
         for statement in statements:
@@ -91,6 +95,8 @@ def _ensure_portal_auth_schema(db):
                 label TEXT,
                 first_ip TEXT,
                 last_ip TEXT,
+                otp_verified_at TIMESTAMP,
+                otp_verified_date TEXT,
                 first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id, device_hash),
@@ -115,6 +121,11 @@ def _ensure_portal_auth_schema(db):
             ("login_otp_channel", "TEXT"),
         ):
             _ensure_sqlite_column(db, "users", column_name, definition)
+        for column_name, definition in (
+            ("otp_verified_at", "TIMESTAMP"),
+            ("otp_verified_date", "TEXT"),
+        ):
+            _ensure_sqlite_column(db, "user_login_devices", column_name, definition)
 
     g._portal_auth_schema_ready = True
 
@@ -740,6 +751,46 @@ def _hash_portal_device_id(value):
     return hashlib.sha256(safe_value.encode("utf-8")).hexdigest()
 
 
+def _portal_otp_today_key():
+    return datetime.now(timezone(timedelta(hours=7))).date().isoformat()
+
+
+def _current_portal_device_id_from_cookie():
+    return _sanitize_portal_device_id(request.cookies.get(_portal_login_device_cookie_name()))
+
+
+def _get_current_portal_login_device(db, user_id):
+    device_id = _current_portal_device_id_from_cookie()
+    device_hash = _hash_portal_device_id(device_id)
+    if not device_hash:
+        return None
+
+    row = db.execute(
+        """
+        SELECT *
+        FROM user_login_devices
+        WHERE user_id=? AND device_hash=?
+        LIMIT 1
+        """,
+        (user_id, device_hash),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _portal_login_device_otp_valid_today(device_row):
+    if not device_row:
+        return False
+    return str(device_row.get("otp_verified_date") or "") == _portal_otp_today_key()
+
+
+def _portal_login_otp_required_for_request(db, user):
+    if not _user_login_otp_required(user):
+        return False
+    return not _portal_login_device_otp_valid_today(
+        _get_current_portal_login_device(db, user["id"])
+    )
+
+
 def _resolve_portal_device_id():
     cookie_name = _portal_login_device_cookie_name()
     device_id = _sanitize_portal_device_id(request.cookies.get(cookie_name))
@@ -876,10 +927,8 @@ def _notify_new_portal_login_device(user, device_label, ip_address, login_locati
         print("NEW DEVICE WHATSAPP NOTIFICATION ERROR:", exc)
 
 
-def _remember_portal_login_device(db, user, login_location=None):
-    if not current_app.config.get("PORTAL_NEW_DEVICE_NOTIFICATION_ENABLED", True):
-        return None
-
+def _remember_portal_login_device(db, user, login_location=None, otp_verified=False):
+    notify_enabled = bool(current_app.config.get("PORTAL_NEW_DEVICE_NOTIFICATION_ENABLED", True))
     device_id = _resolve_portal_device_id()
     device_hash = _hash_portal_device_id(device_id)
     if not device_hash:
@@ -909,39 +958,65 @@ def _remember_portal_login_device(db, user, login_location=None):
     known_count = int(known_count_row["total"] or 0) if known_count_row else 0
 
     if existing:
-        db.execute(
-            """
-            UPDATE user_login_devices
-            SET user_agent=?,
-                label=?,
-                last_ip=?,
-                last_seen_at=CURRENT_TIMESTAMP
-            WHERE id=?
-            """,
-            (user_agent, device_label, ip_address, existing["id"]),
-        )
+        if otp_verified:
+            db.execute(
+                """
+                UPDATE user_login_devices
+                SET user_agent=?,
+                    label=?,
+                    last_ip=?,
+                    last_seen_at=CURRENT_TIMESTAMP,
+                    otp_verified_at=CURRENT_TIMESTAMP,
+                    otp_verified_date=?
+                WHERE id=?
+                """,
+                (user_agent, device_label, ip_address, _portal_otp_today_key(), existing["id"]),
+            )
+        else:
+            db.execute(
+                """
+                UPDATE user_login_devices
+                SET user_agent=?,
+                    label=?,
+                    last_ip=?,
+                    last_seen_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (user_agent, device_label, ip_address, existing["id"]),
+            )
     else:
+        otp_verified_at_sql = "CURRENT_TIMESTAMP" if otp_verified else "NULL"
         db.execute(
-            """
+            f"""
             INSERT INTO user_login_devices(
                 user_id,
                 device_hash,
                 user_agent,
                 label,
                 first_ip,
-                last_ip
+                last_ip,
+                otp_verified_at,
+                otp_verified_date
             )
-            VALUES (?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,{otp_verified_at_sql},?)
             """,
-            (user_id, device_hash, user_agent, device_label, ip_address, ip_address),
+            (
+                user_id,
+                device_hash,
+                user_agent,
+                device_label,
+                ip_address,
+                ip_address,
+                _portal_otp_today_key() if otp_verified else None,
+            ),
         )
-        if known_count > 0:
+        if notify_enabled and known_count > 0:
             _notify_new_portal_login_device(user, device_label, ip_address, login_location)
 
     return device_id
 
 
-def _complete_user_login(db, user, next_target=None, login_location=None):
+def _complete_user_login(db, user, next_target=None, login_location=None, otp_verified=False):
     session.clear()
 
     normalized_role = normalize_role(user["role"])
@@ -994,7 +1069,12 @@ def _complete_user_login(db, user, next_target=None, login_location=None):
     default_target = url_for("dashboard.workspace_gateway")
     device_id = None
     try:
-        device_id = _remember_portal_login_device(db, user, login_location=login_location)
+        device_id = _remember_portal_login_device(
+            db,
+            user,
+            login_location=login_location,
+            otp_verified=otp_verified,
+        )
     except Exception as exc:
         print("PORTAL LOGIN DEVICE TRACKING ERROR:", exc)
 
@@ -1079,7 +1159,7 @@ def login():
                 flash("Daftarkan email dulu untuk melanjutkan akses portal.", "info")
             return redirect(url_for("auth.portal_email_required"))
 
-        if _user_login_otp_required(user):
+        if _portal_login_otp_required_for_request(db, user):
             _set_pending_login_otp_session(
                 user,
                 next_target,
@@ -1124,7 +1204,13 @@ def portal_login_otp():
                 record_login_attempt(db, identifier, get_client_ip(), True)
                 login_location = session.get("pending_login_otp_location")
                 flash("Login berhasil.", "success")
-                return _complete_user_login(db, user, next_target, login_location=login_location)
+                return _complete_user_login(
+                    db,
+                    user,
+                    next_target,
+                    login_location=login_location,
+                    otp_verified=True,
+                )
 
             flash(message, "error")
             if "login ulang" in message.lower():

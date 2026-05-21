@@ -93,6 +93,12 @@ Backlog eksekusi berikutnya:
 - P2.1: Diagnosa app/cache untuk membedakan bug web, app, cache, dan permission.
 - P2.2: Lazy-load chat call/sticker dan print helper bersama.
 
+Progress batch PDF/print:
+- Output nota POS PDF, invoice POS, invoice manual, surat jalan, dan lembar pengesahan dokumen sudah diberi aturan A4/print-color yang lebih konsisten.
+- Invoice print POS lama diperbaiki supaya item transaksi tidak memicu error template saat dibuka.
+- Renderer PDF nota POS HTML diberi flag headless browser yang lebih stabil untuk menunggu render asset sebelum file PDF dibuat.
+- Lembar pengesahan dokumen saat dicetak sekarang fokus ke ringkasan dan status pengesahan; preview iframe lampiran tidak ikut dicetak agar tidak menghasilkan halaman kosong.
+
 Verifikasi wajib saat mulai patch dari audit ini:
 - Jalankan `py_compile` untuk route/service yang disentuh.
 - Jalankan unittest relevan per area: POS, request, attendance, recruitment, SMS, admin, atau HRIS.
