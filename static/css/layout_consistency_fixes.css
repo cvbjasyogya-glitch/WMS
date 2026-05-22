@@ -1071,3 +1071,572 @@ body.internal-module-shell .hris-clean-shell .split-actions {
         min-width: 680px;
     }
 }
+
+/* ======================================================================
+   HRIS / Daily Report compact cards v3
+   Tujuan: kartu tidak terlihat terlalu besar, terasa serapi WMS reference,
+   tanpa mengubah fitur dan tetap aman responsive.
+   ====================================================================== */
+
+/* Portal Report Staff: halaman /laporan-harian dibuat compact seperti WMS. */
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell,
+body.daily-report-portal-shell.internal-clean-page-shell {
+    --compact-card-radius: 8px;
+    --compact-card-gap: 10px;
+    --compact-panel-padding: 16px;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .page-hero,
+body.daily-report-portal-shell.internal-clean-page-shell .page-hero,
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .page-content.page-content-bleed,
+body.daily-report-portal-shell.internal-clean-page-shell .page-content.page-content-bleed {
+    width: min(calc(100% - 48px), 1560px) !important;
+    max-width: 1560px !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .page-hero,
+body.daily-report-portal-shell.internal-clean-page-shell .page-hero {
+    margin-top: 14px !important;
+    padding: 12px 0 8px !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .page-eyebrow,
+body.daily-report-portal-shell.internal-clean-page-shell .page-eyebrow {
+    margin-bottom: 6px !important;
+    font-size: 0.72rem !important;
+    line-height: 1.1 !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .page-hero h1,
+body.daily-report-portal-shell.internal-clean-page-shell .page-hero h1 {
+    font-size: clamp(2rem, 3.05vw, 3rem) !important;
+    line-height: 1 !important;
+    letter-spacing: -0.055em !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .page-content.page-content-bleed,
+body.daily-report-portal-shell.internal-clean-page-shell .page-content.page-content-bleed {
+    min-height: 0 !important;
+    margin-top: 8px !important;
+    padding: 0 0 28px !important;
+    display: grid !important;
+    gap: 12px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .summary,
+body.daily-report-portal-shell.internal-clean-page-shell .summary,
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .attendance-identity-grid,
+body.daily-report-portal-shell.internal-clean-page-shell .attendance-identity-grid,
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .meta-grid,
+body.daily-report-portal-shell.internal-clean-page-shell .meta-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)) !important;
+    gap: var(--compact-card-gap) !important;
+    margin: 0 !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell :is(.card-mini, .meta-card),
+body.daily-report-portal-shell.internal-clean-page-shell :is(.card-mini, .meta-card) {
+    min-height: 72px !important;
+    height: auto !important;
+    padding: 13px 15px !important;
+    gap: 4px !important;
+    align-content: center !important;
+    border: 1px solid var(--internal-line, #dfe7f1) !important;
+    border-top: 3px solid var(--accent-color, #d9a62e) !important;
+    border-radius: var(--compact-card-radius) !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .meta-card,
+body.daily-report-portal-shell.internal-clean-page-shell .meta-card {
+    border-top-color: var(--internal-line, #dfe7f1) !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell :is(.card-mini p, .meta-card span),
+body.daily-report-portal-shell.internal-clean-page-shell :is(.card-mini p, .meta-card span) {
+    margin: 0 0 6px !important;
+    color: #687a90 !important;
+    font-size: 0.68rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.12em !important;
+    line-height: 1.2 !important;
+    text-transform: uppercase !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .card-mini h3,
+body.daily-report-portal-shell.internal-clean-page-shell .card-mini h3 {
+    margin: 0 !important;
+    color: var(--internal-text, #13233b) !important;
+    font-size: clamp(1.22rem, 1.7vw, 1.58rem) !important;
+    line-height: 1.02 !important;
+    letter-spacing: -0.045em !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .meta-card strong,
+body.daily-report-portal-shell.internal-clean-page-shell .meta-card strong {
+    margin: 0 !important;
+    color: var(--internal-text, #13233b) !important;
+    font-size: clamp(1.02rem, 1.45vw, 1.32rem) !important;
+    line-height: 1.1 !important;
+    letter-spacing: -0.045em !important;
+    overflow-wrap: anywhere !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell :is(.form-box, .table-box, .box, .panel),
+body.daily-report-portal-shell.internal-clean-page-shell :is(.form-box, .table-box, .box, .panel) {
+    padding: var(--compact-panel-padding) !important;
+    margin: 0 !important;
+    border: 1px solid var(--internal-line, #dfe7f1) !important;
+    border-radius: var(--compact-card-radius) !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .form-box > .section-title,
+body.daily-report-portal-shell.internal-clean-page-shell .form-box > .section-title,
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .table-box > .section-title,
+body.daily-report-portal-shell.internal-clean-page-shell .table-box > .section-title {
+    margin-bottom: 12px !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .section-title h2,
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .section-title h3,
+body.daily-report-portal-shell.internal-clean-page-shell .section-title h2,
+body.daily-report-portal-shell.internal-clean-page-shell .section-title h3 {
+    font-size: 1rem !important;
+    line-height: 1.1 !important;
+    letter-spacing: -0.035em !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .section-title p,
+body.daily-report-portal-shell.internal-clean-page-shell .section-title p {
+    display: none !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .form-grid,
+body.daily-report-portal-shell.internal-clean-page-shell .form-grid {
+    gap: 12px !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell :is(input, select, textarea),
+body.daily-report-portal-shell.internal-clean-page-shell :is(input, select, textarea) {
+    min-height: 42px !important;
+    border-radius: 8px !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .split-actions,
+body.daily-report-portal-shell.internal-clean-page-shell .split-actions {
+    margin-top: 12px !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .table-box.stack-scroll-shell,
+body.daily-report-portal-shell.internal-clean-page-shell .table-box.stack-scroll-shell {
+    max-height: none !important;
+    overflow: visible !important;
+    padding-right: var(--compact-panel-padding) !important;
+}
+
+html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .table-box.stack-scroll-shell > .section-title,
+body.daily-report-portal-shell.internal-clean-page-shell .table-box.stack-scroll-shell > .section-title {
+    position: static !important;
+    margin: 0 0 12px !important;
+    padding: 0 !important;
+    border-bottom: 0 !important;
+    box-shadow: none !important;
+}
+
+/* HRIS module cards juga dibuat compact agar selaras dengan WMS. */
+html[data-theme] body.internal-module-shell .hris-clean-shell .internal-module-panel,
+body.internal-module-shell .hris-clean-shell .internal-module-panel,
+html[data-theme] body.internal-module-shell .hris-clean-shell .information-panel,
+body.internal-module-shell .hris-clean-shell .information-panel,
+html[data-theme] body.internal-module-shell .hris-clean-shell .content-panel,
+body.internal-module-shell .hris-clean-shell .content-panel {
+    padding: clamp(18px, 1.8vw, 24px) !important;
+    border-radius: 10px !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .summary,
+body.internal-module-shell .hris-clean-shell .summary,
+html[data-theme] body.internal-module-shell .hris-clean-shell .meta-grid,
+body.internal-module-shell .hris-clean-shell .meta-grid {
+    gap: 10px !important;
+    margin-bottom: 12px !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell :is(.card-mini, .meta-card),
+body.internal-module-shell .hris-clean-shell :is(.card-mini, .meta-card) {
+    min-height: 72px !important;
+    padding: 13px 15px !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell :is(.card-mini p, .meta-card span),
+body.internal-module-shell .hris-clean-shell :is(.card-mini p, .meta-card span) {
+    margin-bottom: 6px !important;
+    font-size: 0.68rem !important;
+    letter-spacing: 0.11em !important;
+    line-height: 1.2 !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .card-mini h3,
+body.internal-module-shell .hris-clean-shell .card-mini h3 {
+    font-size: clamp(1.22rem, 1.55vw, 1.5rem) !important;
+    line-height: 1.02 !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell .meta-card strong,
+body.internal-module-shell .hris-clean-shell .meta-card strong {
+    font-size: clamp(0.95rem, 1.15vw, 1.12rem) !important;
+    line-height: 1.18 !important;
+}
+
+html[data-theme] body.internal-module-shell .hris-clean-shell :is(.table-box, .form-box, .box, .panel, details.panel-disclosure),
+body.internal-module-shell .hris-clean-shell :is(.table-box, .form-box, .box, .panel, details.panel-disclosure) {
+    border-radius: 10px !important;
+}
+
+@media (max-width: 760px) {
+    html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .page-hero,
+    body.daily-report-portal-shell.internal-clean-page-shell .page-hero,
+    html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .page-content.page-content-bleed,
+    body.daily-report-portal-shell.internal-clean-page-shell .page-content.page-content-bleed {
+        width: min(calc(100% - 20px), 760px) !important;
+    }
+
+    html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell .page-hero h1,
+    body.daily-report-portal-shell.internal-clean-page-shell .page-hero h1 {
+        font-size: clamp(1.7rem, 9vw, 2.25rem) !important;
+    }
+
+    html[data-theme] body.daily-report-portal-shell.internal-clean-page-shell :is(.card-mini, .meta-card),
+    body.daily-report-portal-shell.internal-clean-page-shell :is(.card-mini, .meta-card),
+    html[data-theme] body.internal-module-shell .hris-clean-shell :is(.card-mini, .meta-card),
+    body.internal-module-shell .hris-clean-shell :is(.card-mini, .meta-card) {
+        min-height: 68px !important;
+        padding: 12px 14px !important;
+    }
+}
+
+/* ======================================================================
+   GLOBAL COMPACT CARDS v4
+   Permintaan: semua halaman yang memakai card/panel/box dibuat lebih kecil,
+   lebih mirip WMS: padding ringkas, radius sederhana, gap rapat, tanpa
+   membuat konten kepotong di desktop/tablet/mobile.
+   ====================================================================== */
+
+:root {
+    --compact-card-radius-global: 10px;
+    --compact-card-radius-mobile: 8px;
+    --compact-card-padding-global: clamp(12px, 1.2vw, 16px);
+    --compact-panel-padding-global: clamp(14px, 1.45vw, 18px);
+    --compact-card-gap-global: 10px;
+    --compact-card-min-height-global: 68px;
+}
+
+/* Grid kumpulan card: dibuat lebih padat agar tidak menuhin layar. */
+body :where(
+    .summary,
+    .summary-grid,
+    .stock-summary-grid,
+    .lookup-summary-grid,
+    .notifications-summary-cards,
+    .document-approval-stat-grid,
+    .internal-status-grid,
+    .overview-stats,
+    .overview-summary,
+    .attendance-identity-grid,
+    .meta-grid,
+    .wms-kpi-grid,
+    .biometric-workspace-summary,
+    .career-detail-summary-grid,
+    .career-profile-document-status-grid
+) {
+    gap: var(--compact-card-gap-global) !important;
+    margin-bottom: 12px !important;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)) !important;
+}
+
+body :where(
+    .cards,
+    .card-grid,
+    .card-grid-two,
+    .dashboard-cards,
+    .folder-card-grid,
+    .career-astra-card-grid,
+    .career-candidate-card-grid,
+    .career-job-card-grid,
+    .workspace-card-grid
+) {
+    gap: 12px !important;
+    margin-bottom: 12px !important;
+}
+
+/* Card umum di halaman internal dan public: lebih compact, shadow dikurangi. */
+body :where(.main, .page-content, .page-content-bleed, .internal-module-panel, .information-panel, .content-panel, .career-public-shell, .career-candidate-shell, .workspace, .app-shell) :where(
+    .card,
+    .card-mini,
+    .summary-card,
+    .meta-card,
+    .content-card,
+    .workspace-card,
+    .internal-app-card,
+    .internal-hub-card,
+    .internal-status-card,
+    .report-portal-card,
+    .notification-card,
+    .announcement-event-card,
+    .announcement-permission-card,
+    .admin-role-card,
+    .barcode-item-card,
+    .barcode-layer-card,
+    .barcode-template-card,
+    .barcode-upload-card,
+    .biometric-data-card,
+    .biometric-meta-card,
+    .biometric-workspace-card,
+    .biometric-workspace-stat,
+    .attendance-overview-card,
+    .attendance-capture-card,
+    .attendance-history-card,
+    .attendance-log-card,
+    .document-approval-stat-card,
+    .career-astra-card,
+    .career-astra-feature-card,
+    .career-astra-stat-card,
+    .career-astra-story-card,
+    .career-about-card,
+    .career-about-band-card,
+    .career-about-pillar-card,
+    .career-apply-card,
+    .career-detail-card,
+    .career-detail-process-card,
+    .career-detail-summary-card,
+    .career-guide-card,
+    .career-help-faq-card,
+    .career-help-step-card,
+    .career-job-card,
+    .career-candidate-info-card,
+    .career-candidate-preview-card,
+    .career-profile-summary-card,
+    .career-profile-document-status-card,
+    .hris-dashboard-announcement-card,
+    .hris-dashboard-leave-card,
+    .hris-dashboard-reminder-card,
+    .hris-module-card,
+    .hris-recruitment-portal-card,
+    .manual-adjustment-card,
+    .manual-product-mode-card,
+    .notification-card,
+    .ops-config-card,
+    .ops-stock-card,
+    .party-card,
+    .product-lookup-card,
+    .product-lookup-price-card,
+    .recruitment-workspace-card,
+    .schedule-profile-card,
+    .schedule-shift-card,
+    .stack-scroll-card,
+    .stock-mini-card,
+    .variant-price-card,
+    .variant-static-card,
+    .variant-stock-card,
+    .wms-command-card,
+    .wms-kpi-card,
+    .wms-step-card,
+    [class$="-card"],
+    [class*="-card "]
+) {
+    min-height: var(--compact-card-min-height-global) !important;
+    height: auto !important;
+    padding: var(--compact-card-padding-global) !important;
+    gap: 6px !important;
+    border-radius: var(--compact-card-radius-global) !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+}
+
+/* Panel, box, form, dan table yang tampil seperti card juga dibuat ringkas. */
+body :where(.main, .page-content, .page-content-bleed, .internal-module-panel, .information-panel, .content-panel, .career-public-shell, .career-candidate-shell, .workspace, .app-shell) :where(
+    .panel,
+    .form-box,
+    .table-box,
+    .import-box,
+    .box,
+    .filter-panel,
+    .content-panel,
+    .information-panel,
+    .internal-module-panel,
+    .clean-content-panel,
+    .attendance-form-panel,
+    .attendance-optional-panel,
+    .barcode-toolbar-panel,
+    .career-candidate-panel,
+    .career-candidate-jobs-list-panel,
+    .career-profile-form-panel,
+    .chat-main-panel,
+    .chat-sidebar-panel,
+    .chat-search-panel,
+    .document-approval-panel,
+    .hris-dashboard-panel,
+    .hris-document-approval-panel,
+    .hris-document-preview-panel,
+    .notification-center-panel,
+    .pos-ipos-panel,
+    .report-feed-panel,
+    .recruitment-workspace-panel,
+    .storage-panel,
+    [class$="-panel"],
+    [class*="-panel "],
+    [class$="-box"],
+    [class*="-box "]
+) {
+    padding: var(--compact-panel-padding-global) !important;
+    border-radius: var(--compact-card-radius-global) !important;
+    box-shadow: none !important;
+}
+
+/* Jangan beri padding card ke elemen wrapper/header/copy/action yang namanya mengandung card tapi bukan kartu. */
+body :where(
+    [class*="-card-grid"],
+    [class*="-cards"],
+    [class*="-card-actions"],
+    [class*="-card-head"],
+    [class*="-card-top"],
+    [class*="-card-meta"],
+    [class*="-card-copy"],
+    [class*="-card-brand"],
+    [class*="-card-logo"],
+    [class*="-card-title"],
+    [class*="-card-kicker"],
+    [class*="-card-location"],
+    [class*="-card-summary"]
+) {
+    min-height: initial !important;
+    padding: initial;
+    border-radius: initial;
+    box-shadow: initial;
+}
+
+/* Tipografi card dibuat lebih kecil seperti WMS, tapi tetap mudah dibaca. */
+body :where(.main, .page-content, .page-content-bleed, .internal-module-panel, .information-panel, .content-panel, .career-public-shell, .career-candidate-shell, .workspace, .app-shell) :where(
+    .card,
+    .card-mini,
+    .summary-card,
+    .meta-card,
+    [class$="-card"],
+    [class*="-card "]
+) :where(p, small, span, .page-eyebrow, .kicker, .eyebrow) {
+    font-size: clamp(0.68rem, 0.72vw, 0.78rem) !important;
+    line-height: 1.28 !important;
+}
+
+body :where(.main, .page-content, .page-content-bleed, .internal-module-panel, .information-panel, .content-panel, .career-public-shell, .career-candidate-shell, .workspace, .app-shell) :where(
+    .card,
+    .card-mini,
+    .summary-card,
+    .meta-card,
+    [class$="-card"],
+    [class*="-card "]
+) :where(h2, h3, strong, .value, .count, .number) {
+    font-size: clamp(1.05rem, 1.4vw, 1.55rem) !important;
+    line-height: 1.08 !important;
+    letter-spacing: -0.035em !important;
+}
+
+/* Form dan filter tidak terlalu tinggi. */
+body :where(.form-box, .filter-panel, [class$="-box"], [class*="-box "]) :where(input, select, textarea) {
+    min-height: 40px !important;
+    border-radius: 8px !important;
+}
+
+body :where(.form-box, .filter-panel, [class$="-box"], [class*="-box "]) :where(label) {
+    margin-bottom: 6px !important;
+    font-size: 0.78rem !important;
+}
+
+body :where(.form-grid, .top-bar, .products-filter-bar, .stock-filter-bar, form.search-form, .split-actions) {
+    gap: 10px !important;
+}
+
+/* Khusus internal module: panel kanan tidak perlu terasa besar. */
+body.internal-module-shell :where(.internal-module-panel, .information-panel, .content-panel, .clean-content-panel) {
+    padding: clamp(16px, 1.6vw, 22px) !important;
+    border-radius: 10px !important;
+}
+
+/* Khusus report/stok/WMS: ukuran card summary distandarkan agar visualnya sama. */
+body :where(.daily-report-portal-shell, .wms-stock-reference-shell, .internal-module-shell) :where(.summary, .summary-grid, .meta-grid) {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)) !important;
+    gap: 10px !important;
+}
+
+body :where(.daily-report-portal-shell, .wms-stock-reference-shell, .internal-module-shell) :where(.card-mini, .summary-card, .meta-card, .wms-kpi-card) {
+    min-height: 66px !important;
+    padding: 12px 14px !important;
+    border-radius: 8px !important;
+}
+
+/* Mobile tetap nyaman: satu kolom, card tidak tinggi, halaman tetap bisa scroll. */
+@media (max-width: 760px) {
+    body :where(
+        .summary,
+        .summary-grid,
+        .stock-summary-grid,
+        .lookup-summary-grid,
+        .notifications-summary-cards,
+        .document-approval-stat-grid,
+        .internal-status-grid,
+        .overview-stats,
+        .overview-summary,
+        .attendance-identity-grid,
+        .meta-grid,
+        .cards,
+        .card-grid,
+        .card-grid-two
+    ) {
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 10px !important;
+    }
+
+    body :where(.main, .page-content, .page-content-bleed, .internal-module-panel, .information-panel, .content-panel, .career-public-shell, .career-candidate-shell, .workspace, .app-shell) :where(
+        .card,
+        .card-mini,
+        .summary-card,
+        .meta-card,
+        [class$="-card"],
+        [class*="-card "]
+    ) {
+        min-height: 62px !important;
+        padding: 12px !important;
+        border-radius: var(--compact-card-radius-mobile) !important;
+    }
+
+    body :where(.main, .page-content, .page-content-bleed, .internal-module-panel, .information-panel, .content-panel, .career-public-shell, .career-candidate-shell, .workspace, .app-shell) :where(
+        .panel,
+        .form-box,
+        .table-box,
+        .import-box,
+        .box,
+        .filter-panel,
+        [class$="-panel"],
+        [class*="-panel "],
+        [class$="-box"],
+        [class*="-box "]
+    ) {
+        padding: 12px !important;
+        border-radius: var(--compact-card-radius-mobile) !important;
+    }
+
+    body :where(.card, .card-mini, .summary-card, .meta-card, [class$="-card"], [class*="-card "]) :where(h2, h3, strong, .value, .count, .number) {
+        font-size: clamp(1rem, 5vw, 1.32rem) !important;
+    }
+}
