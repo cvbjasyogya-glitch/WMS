@@ -1,0 +1,487 @@
+/*
+  Front-end layout consistency fixes
+  Dibuat untuk merapikan HTML/CSS project tanpa menghapus fitur yang sudah ada.
+  Fokus: scroll normal, warna konsisten, responsive lebih aman, dan mencegah halaman kepotong.
+*/
+
+:root {
+    --primary-color: #0c2344;
+    --secondary-color: #14345e;
+    --background-color: #f4f6f9;
+    --surface-color: #ffffff;
+    --surface-soft-color: #f8fafc;
+    --text-color: #172033;
+    --muted-text-color: #667085;
+    --accent-color: #d9a62e;
+    --accent-soft-color: #fff4d8;
+    --border-color: #dfe5ee;
+    --danger-color: #d92d20;
+    --success-color: #168364;
+    --warning-color: #b45f06;
+    --radius-lg: 18px;
+    --radius-md: 14px;
+    --radius-sm: 10px;
+    --layout-page-max: 1500px;
+
+    /* Alias agar file CSS lama tetap memakai token lama, tapi warnanya satu tema. */
+    --bg: var(--primary-color);
+    --bg-accent: var(--secondary-color);
+    --panel: var(--surface-color);
+    --panel-soft: rgba(255, 255, 255, 0.88);
+    --surface: rgba(255, 255, 255, 0.94);
+    --surface-strong: var(--surface-color);
+    --surface-soft: var(--surface-soft-color);
+    --line: rgba(15, 35, 68, 0.14);
+    --line-strong: rgba(15, 35, 68, 0.24);
+    --text: #eaf1fb;
+    --text-strong: var(--text-color);
+    --text-soft: #475467;
+    --text-muted: var(--muted-text-color);
+    --accent: var(--accent-color);
+    --accent-strong: #b5851f;
+    --accent-soft: rgba(217, 166, 46, 0.16);
+
+    --zip-navy: var(--primary-color);
+    --zip-navy-2: var(--secondary-color);
+    --zip-gold: var(--accent-color);
+    --zip-gold-soft: var(--accent-soft-color);
+    --zip-bg: var(--background-color);
+    --zip-surface: var(--surface-color);
+    --zip-surface-soft: var(--surface-soft-color);
+    --zip-border: var(--border-color);
+    --zip-text: var(--text-color);
+    --zip-muted: var(--muted-text-color);
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    min-height: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+}
+
+body {
+    min-height: 100vh;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+body:not(.menu-open):not(.pos-ipos-picker-open):not(.pos-ipos-menu-open):not(.pos-payment-modal-open):not(.career-mobile-menu-open) {
+    overflow-y: auto !important;
+}
+
+img,
+svg,
+video,
+canvas,
+iframe {
+    max-width: 100%;
+}
+
+img,
+video,
+canvas {
+    height: auto;
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
+    max-width: 100%;
+}
+
+a,
+button,
+.ghost-button,
+.btn,
+.btn-link,
+.button-primary,
+.button-secondary,
+.page-actions a,
+.page-actions button {
+    -webkit-tap-highlight-color: transparent;
+}
+
+body :is(.layout, .main, .main-public, .page-content, .page-content-bleed, .page-hero, .flash-stack, .form-box, .panel, .box, .card, .card-mini, .table-box, .internal-module-layout, .module-layout, .clean-module-layout, .internal-module-panel, .information-panel, .content-panel, .workspace-gateway, .career-public-shell, .career-candidate-shell, .career-candidate-main, .login-shell, .app-shell, .workspace) {
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+}
+
+body :is(.main, .main-public, .page-content, .page-content-bleed) {
+    width: 100%;
+    max-width: 100%;
+}
+
+body :is(.page-content, .page-content-bleed, .internal-module-panel, .information-panel, .content-panel) {
+    min-height: 0;
+}
+
+body:not(:has(.chat-page-content)) :is(.page-content, .page-content-bleed, .internal-module-panel, .information-panel, .content-panel) {
+    height: auto !important;
+    max-height: none !important;
+}
+
+body .page-hero {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: clamp(14px, 2vw, 24px);
+}
+
+body .page-hero-text,
+body .page-actions-desktop-slot,
+body .page-actions {
+    min-width: 0;
+}
+
+body .page-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+body :is(.table-box, .table-responsive, .table-wrap, .stock-table-viewport, .stock-table-wrap, .pos-ipos-tablewrap, .pos-ipos-cartwrap, .products-table-wrap) {
+    max-width: 100% !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+body table {
+    max-width: 100%;
+    border-collapse: collapse;
+}
+
+body :is(td, th) {
+    word-break: normal;
+}
+
+body :is(.card, .card-mini, .box, .panel, .form-box, .table-box) {
+    border-color: var(--border-color, rgba(15, 35, 68, 0.14));
+}
+
+body :is(.ghost-button, .btn-link, .button-primary, .button-secondary, .page-actions a, .page-actions button, form button[type="submit"]) {
+    border-radius: var(--radius-sm, 10px);
+}
+
+body :is(.ghost-button:focus-visible, .btn-link:focus-visible, .button-primary:focus-visible, .button-secondary:focus-visible, a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible) {
+    outline: 3px solid rgba(217, 166, 46, 0.35);
+    outline-offset: 2px;
+}
+
+/* Shell internal: jangan kunci tinggi halaman. Konten boleh memanjang dan discroll browser. */
+body.internal-clean-page-shell,
+body.internal-module-shell,
+body.internal-portal-shell {
+    min-height: 100vh !important;
+    height: auto !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    color: var(--text-color) !important;
+    background: var(--background-color) !important;
+}
+
+body.internal-clean-page-shell .layout,
+body.internal-module-shell .layout,
+body.internal-portal-shell .layout {
+    min-height: 100vh !important;
+    height: auto !important;
+    overflow: visible !important;
+}
+
+body.internal-clean-page-shell .main,
+body.internal-module-shell .main,
+body.internal-portal-shell .main {
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+}
+
+body.internal-clean-page-shell :is(.internal-module-layout, .module-layout, .clean-module-layout),
+body.internal-module-shell :is(.internal-module-layout, .module-layout, .clean-module-layout),
+body.internal-portal-shell :is(.internal-module-layout, .module-layout, .clean-module-layout) {
+    min-height: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+}
+
+body.internal-clean-page-shell :is(.internal-module-panel, .information-panel, .content-panel, .clean-content-panel),
+body.internal-module-shell :is(.internal-module-panel, .information-panel, .content-panel, .clean-content-panel),
+body.internal-portal-shell :is(.internal-module-panel, .information-panel, .content-panel, .clean-content-panel) {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+}
+
+/* Perbaikan khusus stok/WMS: file lama mengunci html/body/main ke 100vh + overflow hidden. */
+html:has(body.wms-stock-reference-shell),
+html[data-theme]:has(body.wms-stock-reference-shell) {
+    height: auto !important;
+    min-height: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+}
+
+body.wms-stock-reference-shell,
+html[data-theme] body.wms-stock-reference-shell {
+    height: auto !important;
+    min-height: 100vh !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+}
+
+body.wms-stock-reference-shell :is(.layout, .main, .page-content, .page-content-bleed, .internal-module-layout, .internal-module-panel, .information-panel, .content-panel, .wms-zip-stock-page, .wms-zip-edit-page, .products-manual-box, .product-edit-form),
+html[data-theme] body.wms-stock-reference-shell :is(.layout, .main, .page-content, .page-content-bleed, .internal-module-layout, .internal-module-panel, .information-panel, .content-panel, .wms-zip-stock-page, .wms-zip-edit-page, .products-manual-box, .product-edit-form) {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+}
+
+body.wms-stock-reference-shell :is(.table-section, .table-wrap, .stock-table-viewport),
+html[data-theme] body.wms-stock-reference-shell :is(.table-section, .table-wrap, .stock-table-viewport) {
+    max-height: none !important;
+    overflow: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+body.wms-stock-reference-shell :is(.filter-panel, .top-bar, .products-filter-bar, .stock-filter-bar),
+html[data-theme] body.wms-stock-reference-shell :is(.filter-panel, .top-bar, .products-filter-bar, .stock-filter-bar) {
+    max-width: 100% !important;
+    overflow: visible !important;
+}
+
+body.wms-stock-reference-shell .stock-table,
+html[data-theme] body.wms-stock-reference-shell .stock-table {
+    min-width: 920px;
+}
+
+/* SMS Storage/Drive: desktop boleh scroll normal; sidebar tetap scroll sendiri kalau isinya panjang. */
+body.sms-premium-compact,
+body:has(.sms-premium-compact) {
+    min-height: 100vh !important;
+    height: auto !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+}
+
+body.sms-premium-compact .app-shell {
+    min-height: 100vh !important;
+    height: auto !important;
+}
+
+body.sms-premium-compact .workspace {
+    height: auto !important;
+    min-height: calc(100vh - 76px) !important;
+    max-height: none !important;
+    overflow: visible !important;
+}
+
+body.sms-premium-compact .sidebar {
+    max-height: calc(100vh - 56px) !important;
+    overflow-y: auto !important;
+}
+
+/* Career public: shell kandidat sebelumnya memakai overflow hidden, dibuat aman saat konten panjang. */
+body .career-candidate-shell {
+    height: auto !important;
+    min-height: calc(100vh - 32px) !important;
+    overflow: visible !important;
+}
+
+body .career-candidate-main,
+body .career-candidate-page {
+    min-height: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+}
+
+@media (max-width: 1180px) {
+    body.internal-clean-page-shell :is(.internal-module-layout, .module-layout, .clean-module-layout),
+    body.internal-module-shell :is(.internal-module-layout, .module-layout, .clean-module-layout),
+    body.internal-portal-shell :is(.internal-module-layout, .module-layout, .clean-module-layout) {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    body.internal-clean-page-shell :is(.internal-module-nav, .information-module-nav, .clean-module-sidebar, .info-sidebar),
+    body.internal-module-shell :is(.internal-module-nav, .information-module-nav, .clean-module-sidebar, .info-sidebar),
+    body.internal-portal-shell :is(.internal-module-nav, .information-module-nav, .clean-module-sidebar, .info-sidebar) {
+        position: static !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+}
+
+@media (max-width: 900px) {
+    body .layout {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    body .sidebar:not(.clean-module-sidebar):not(.information-module-nav) {
+        max-width: min(320px, 88vw);
+    }
+
+    body .main,
+    body .page-content {
+        padding-inline: clamp(12px, 4vw, 20px);
+    }
+
+    body .page-hero {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    body .page-actions-desktop-slot,
+    body .page-actions {
+        width: 100%;
+    }
+
+    body .page-actions > * {
+        flex: 1 1 min(220px, 100%);
+        justify-content: center;
+    }
+
+    body.sms-premium-compact .app-shell {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) !important;
+        grid-template-rows: auto auto !important;
+    }
+
+    body.sms-premium-compact .topbar {
+        height: auto !important;
+        min-height: 64px !important;
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 10px !important;
+        padding-block: 10px !important;
+    }
+
+    body.sms-premium-compact .sidebar {
+        position: static !important;
+        height: auto !important;
+        max-height: none !important;
+    }
+
+    body.sms-premium-compact .workspace {
+        min-height: auto !important;
+        margin: 10px !important;
+    }
+}
+
+@media (max-width: 640px) {
+    body .main,
+    body .page-content {
+        padding-inline: 12px;
+    }
+
+    body :is(.page-hero, .box, .panel, .form-box, .table-box, .card, .card-mini) {
+        border-radius: var(--radius-md, 14px) !important;
+    }
+
+    body :is(.top-bar, .products-filter-bar, .stock-filter-bar, .filter-panel, form.search-form) {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 10px !important;
+    }
+
+    body :is(input, select, textarea, button, .ghost-button, .btn-link, .button-primary, .button-secondary) {
+        width: 100%;
+    }
+
+    body table {
+        font-size: 0.88rem;
+    }
+
+    body.wms-stock-reference-shell .stock-table,
+    html[data-theme] body.wms-stock-reference-shell .stock-table {
+        min-width: 760px;
+    }
+}
+
+/* Login standalone: form tidak boleh kepotong di layar pendek / mobile landscape. */
+body.login-page,
+body.login-page .login-shell {
+    min-height: 100vh !important;
+    height: auto !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+}
+
+body.login-page .login-form-panel {
+    min-height: min(100vh, 900px) !important;
+    height: auto !important;
+    overflow: visible !important;
+}
+
+@media (max-width: 900px), (max-height: 720px) {
+    body.login-page .login-shell {
+        display: grid !important;
+        align-items: stretch !important;
+        overflow: visible !important;
+    }
+
+    body.login-page .login-form-panel {
+        min-height: auto !important;
+        justify-content: flex-start !important;
+    }
+}
+
+/* Polesan konsistensi visual: kartu, form, tombol, dan panel memakai token brand yang sama. */
+body :is(.page-hero, .content-header, .filter-panel, .summary-card, .card, .card-mini, .box, .panel, .form-box, .table-box, .workspace-card, .file-surface) {
+    border-color: var(--border-color, rgba(15, 35, 68, 0.14)) !important;
+}
+
+body :is(.button-primary, .btn-primary, form button[type="submit"]):not(.top-icon-btn):not(.ghost-button) {
+    color: #ffffff !important;
+    background: linear-gradient(135deg, var(--primary-color, #0c2344), var(--secondary-color, #14345e)) !important;
+    border-color: rgba(12, 35, 68, 0.18) !important;
+}
+
+body :is(.button-secondary, .btn-secondary, .ghost-button, .btn-link) {
+    border-color: var(--border-color, rgba(15, 35, 68, 0.14));
+}
+
+body :is(input, select, textarea) {
+    color: var(--text-color, #172033);
+    background-color: #ffffff;
+    border-color: var(--border-color, #dfe5ee);
+}
+
+body :is(input, select, textarea):focus {
+    border-color: rgba(217, 166, 46, 0.72) !important;
+    box-shadow: 0 0 0 4px rgba(217, 166, 46, 0.14) !important;
+}
+
+/* Mobile: hanya field dan tombol aksi yang full-width, bukan semua icon button/navbar. */
+@media (max-width: 640px) {
+    body :is(input, select, textarea) {
+        width: 100%;
+    }
+
+    body :is(.button-primary, .button-secondary, .btn-link, form button[type="submit"], .page-actions a, .page-actions button):not(.top-icon-btn):not(.icon-button):not(.notification-button):not(.profile-button):not(.sidebar-main-trigger) {
+        width: 100%;
+        justify-content: center;
+    }
+
+    body :is(.top-icon-btn, .icon-button, .notification-button, .profile-button, .sidebar-main-trigger, .floating-toolbelt-launcher, .file-kebab, .folder-kebab) {
+        width: auto;
+        flex: 0 0 auto;
+    }
+}
+
+@media (max-width: 640px) {
+    body :is(.view-switch-btn, .file-action-btn, .toolbar-chip, .notification-tab, .mobile-menu-button, .login-install-toggle) {
+        width: auto;
+        flex: 0 0 auto;
+    }
+}
