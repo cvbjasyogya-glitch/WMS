@@ -1407,6 +1407,16 @@ self.addEventListener("fetch", () => {{}});
         public_host_mode = _get_public_host_mode(app, request.host)
         service_worker_enabled = bool(app.config.get("SERVICE_WORKER_ENABLED", False)) and not bool(public_host_mode)
         shell_server_now = datetime.now(APP_DISPLAY_TIMEZONE)
+        barcode_public_hosts = app.config.get("BARCODE_PUBLIC_HOSTS") or []
+        if isinstance(barcode_public_hosts, str):
+            barcode_public_hosts = [barcode_public_hosts]
+        barcode_public_url = "/stock/barcode"
+        for host in barcode_public_hosts:
+            candidate = str(host or "").strip().rstrip("/")
+            if not candidate:
+                continue
+            barcode_public_url = f"{candidate}/" if "://" in candidate else f"https://{candidate}/"
+            break
         return {
             "can": lambda permission: has_permission(role, permission),
             "can_access_pos_terminal": lambda: can_access_pos_terminal(role),
@@ -1428,6 +1438,7 @@ self.addEventListener("fetch", () => {{}});
             "app_display_time_zone": APP_DISPLAY_TIMEZONE_NAME,
             "app_server_time_iso": shell_server_now.isoformat(),
             "app_server_time_epoch_ms": int(shell_server_now.timestamp() * 1000),
+            "barcode_public_url": barcode_public_url,
             "ui_scope_label": (
                 lambda value: _replace_scope_label_with_homebase(value)
                 if use_homebase_ui

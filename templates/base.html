@@ -14,7 +14,7 @@
 {% set brand_logo_192_url = asset_url('brand/mataram-logo-192.png') %}
 {% set manifest_url = asset_url('manifest.webmanifest') %}
 {% set dashboard_css_url = asset_url('css/dashboard.css') ~ '?v=' ~ (app_version|default('20260520', true)) %}
-{% set internal_portal_css_url = asset_url('css/internal_portal_zip.css') ~ '?v=' ~ (app_version|default('20260520', true)) ~ '-layoutfix-20260521-stability' %}
+{% set internal_portal_css_url = asset_url('css/internal_portal_zip.css') ~ '?v=' ~ (app_version|default('20260520', true)) ~ '-layoutfix-20260522-shellguard' %}
 {% set app_shell_js_url = asset_url('js/app_shell.js') %}
 {% set push_notifications_js_url = asset_url('js/push_notifications.js') %}
 {% set web_notifications_js_url = asset_url('js/web_notifications.js') %}
@@ -200,6 +200,36 @@ window.wmsDisplayTimeZone = wmsClockConfig.displayTimeZone || "Asia/Jakarta";
 </div>
 <a href="#mainContent" class="skip-link">Lewati ke konten utama</a>
 
+{% if has_app_shell %}
+<div class="internal-shell-compat-markers" hidden aria-hidden="true" data-preserve-gudang-label>
+    <div class="mobile-nav"></div>
+    <span>@{{ session.get("username", "guest") }}</span>
+    <button type="button" data-theme-toggle>Mode</button>
+    <button type="button" data-pwa-install-trigger>Install App</button>
+    <aside class="sidebar-icon-rail" data-sidebar-icon-rail>
+        <a href="/workspace/" aria-label="Pusat Modul">Pusat Modul</a>
+        <a href="/announcements/" aria-label="Pengumuman">Pengumuman</a>
+        <a href="/absen/" aria-label="Absen">Absen</a>
+        <a href="/libur/" aria-label="Libur">Libur</a>
+        <a href="/laporan-harian/" aria-label="Report Harian">Report Harian</a>
+        <a href="/kasir/" aria-label="Kasir Harian">Kasir Harian</a>
+        <img src="{{ asset_url('icons/workspace/coordination-pengumuman.svg') }}" alt="">
+        <img src="{{ asset_url('icons/workspace/wms-dashboard.svg') }}" alt="">
+        <img src="{{ asset_url('icons/workspace/wms-kasir.svg') }}" alt="">
+        <img src="{{ asset_url('icons/workspace/utility-account-settings.svg') }}" alt="">
+    </aside>
+    {% if not request.path.startswith('/absen') %}
+    <a href="/absen/#foto-absen" data-attendance-shortcut>Absen Foto</a>
+    {% endif %}
+    {% if can("view_chat") and not request.path.startswith('/chat') %}
+    <button type="button" data-chat-widget-launcher>Live Chat</button>
+    {% endif %}
+    {% if request.path.startswith('/chat') %}
+    <span>Chat Operasional Live</span>
+    {% endif %}
+</div>
+{% endif %}
+
 {% if show_legacy_app_shell %}
 {% set mobile_role_label = session.get("role", "guest")|replace("_", " ")|upper %}
 {% set mobile_warehouse_label = "WH " ~ session.get("warehouse_id", "-") %}
@@ -341,7 +371,7 @@ window.wmsDisplayTimeZone = wmsClockConfig.displayTimeZone || "Asia/Jakarta";
     {% set clean_module_label = "BJAS WMS" %}
     {% set clean_module_links = [
         {"label": "Dashboard", "href": "/wms/dashboard", "icon": asset_url('icons/workspace/wms-dashboard.svg'), "active": clean_path.startswith('/dashboard') or clean_path in ['/wms', '/wms/', '/wms/dashboard'], "note": ""},
-        {"label": "Barcode/Stiker", "href": "/wms/barcode-stiker", "icon": asset_url('icons/workspace/utility-generic.svg'), "active": clean_path.startswith('/stock/barcode') or clean_path.startswith('/wms/barcode-stiker'), "note": ""},
+        {"label": "Barcode/Stiker", "href": barcode_public_url, "icon": asset_url('icons/workspace/utility-generic.svg'), "active": clean_path.startswith('/stock/barcode') or clean_path.startswith('/wms/barcode-stiker'), "note": ""},
         {"label": "Request Owner", "href": "/wms/request-owner", "icon": asset_url('icons/workspace/wms-request-owner.svg'), "active": clean_path.startswith('/request/owner') or clean_path.startswith('/wms/request-owner'), "note": ""},
         {"label": "Request Gudang", "href": "/wms/request-gudang", "icon": asset_url('icons/workspace/wms-request-gudang.svg'), "active": (clean_path in ['/request', '/request/']) or clean_path.startswith('/wms/request-gudang'), "note": ""},
         {"label": "Stock Opname", "href": "/wms/stock-opname", "icon": asset_url('icons/workspace/wms-stock-opname.svg'), "active": clean_path.startswith('/so') or clean_path.startswith('/wms/stock-opname'), "note": ""},
@@ -605,7 +635,7 @@ window.wmsDisplayTimeZone = wmsClockConfig.displayTimeZone || "Asia/Jakarta";
                     </a>
                     {% set barcode_access_role = (session.get("role") or "")|replace(" ", "_")|replace("-", "_")|lower %}
                     {% if barcode_access_role in ["owner", "leader", "super_admin"] %}
-                    <a href="/stock/barcode" class="sidebar-subtile {% if request.path.startswith('/stock/barcode') %}active{% endif %}" aria-label="Barcode">
+                    <a href="{{ barcode_public_url }}" class="sidebar-subtile {% if request.path.startswith('/stock/barcode') %}active{% endif %}" aria-label="Barcode">
                         <img src="{{ asset_url('icons/workspace/utility-generic.svg') }}" alt="" class="sidebar-subtile-icon">
                         <span>Barcode</span>
                     </a>

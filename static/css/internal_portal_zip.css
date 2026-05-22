@@ -4587,3 +4587,268 @@ body.internal-clean-page-shell .internal-user-pill .profile-name {
         grid-template-columns: minmax(0, 1fr) !important;
     }
 }
+
+/* 2026-05-22 shell guard.
+   Keep every ZIP-inspired internal page stable even when older dashboard
+   rules, browser zoom, or stale device metrics try to shrink the module shell. */
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell),
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) {
+    min-width: 320px !important;
+    overflow-x: hidden !important;
+    color: var(--zip-text, #172033) !important;
+    background:
+        radial-gradient(circle at top left, rgba(217, 166, 46, 0.10), transparent 30rem),
+        linear-gradient(180deg, #f7f9fc 0%, #f4f6f9 46%, #eef2f7 100%) !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .layout,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .layout {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 100vh !important;
+    background: transparent !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .main,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .main {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    padding: 0 0 34px !important;
+    margin: 0 !important;
+    background: transparent !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 120 !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    min-height: 76px !important;
+    display: grid !important;
+    grid-template-columns: minmax(220px, 1fr) minmax(140px, 260px) minmax(180px, 1fr) !important;
+    align-items: center !important;
+    gap: clamp(12px, 2vw, 24px) !important;
+    padding: 14px clamp(16px, 4vw, 48px) !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+    background: rgba(255, 255, 255, 0.94) !important;
+    border: 0 !important;
+    border-bottom: 1px solid rgba(223, 229, 238, 0.92) !important;
+    border-radius: 0 !important;
+    box-shadow: 0 8px 26px rgba(15, 23, 42, 0.035) !important;
+    backdrop-filter: blur(16px) !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-left,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-left {
+    width: auto !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    justify-self: start !important;
+    overflow: hidden !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-logo,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-logo {
+    width: clamp(150px, 18vw, 244px) !important;
+    max-width: 100% !important;
+    height: 48px !important;
+    justify-self: center !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-logo img,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-logo img {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: 72px !important;
+    object-fit: contain !important;
+    transform: none !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-user,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-user {
+    width: auto !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    justify-self: end !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 10px !important;
+    overflow: visible !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-brand-pill,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-brand-pill {
+    flex: 0 1 auto !important;
+    min-width: 92px !important;
+    max-width: 176px !important;
+    min-height: 46px !important;
+    padding: 0 14px !important;
+    overflow: hidden !important;
+}
+
+html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .brand-fallback,
+body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .brand-fallback {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) .breadcrumb-list,
+html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) .page-content.hris-clean-shell,
+html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) .internal-module-footer,
+body:is(.internal-module-shell, .internal-clean-page-shell) .breadcrumb-list,
+body:is(.internal-module-shell, .internal-clean-page-shell) .page-content.hris-clean-shell,
+body:is(.internal-module-shell, .internal-clean-page-shell) .internal-module-footer {
+    width: min(1500px, calc(100% - clamp(24px, 4vw, 64px))) !important;
+    max-width: 1500px !important;
+    margin-inline: auto !important;
+    box-sizing: border-box !important;
+}
+
+html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) .page-content.hris-clean-shell,
+body:is(.internal-module-shell, .internal-clean-page-shell) .page-content.hris-clean-shell {
+    padding: 24px 0 34px !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) .internal-module-layout,
+html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) .module-layout,
+html[data-theme] body.internal-clean-page-shell .clean-module-layout,
+body:is(.internal-module-shell, .internal-clean-page-shell) .internal-module-layout,
+body:is(.internal-module-shell, .internal-clean-page-shell) .module-layout,
+body.internal-clean-page-shell .clean-module-layout {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    display: grid !important;
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) !important;
+    gap: 22px !important;
+    align-items: start !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+}
+
+html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) :is(.internal-module-panel, .information-panel, .content-panel, .clean-content-panel),
+body:is(.internal-module-shell, .internal-clean-page-shell) :is(.internal-module-panel, .information-panel, .content-panel, .clean-content-panel) {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+}
+
+html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) :is(.table-box, .table-responsive, .data-table-wrap, .schedule-board-wrap, .stock-table-viewport, .pos-ipos-tablewrap),
+body:is(.internal-module-shell, .internal-clean-page-shell) :is(.table-box, .table-responsive, .data-table-wrap, .schedule-board-wrap, .stock-table-viewport, .pos-ipos-tablewrap) {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+}
+
+html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) :is(.table-responsive, .data-table-wrap, .schedule-board-wrap, .stock-table-viewport, .pos-ipos-tablewrap),
+body:is(.internal-module-shell, .internal-clean-page-shell) :is(.table-responsive, .data-table-wrap, .schedule-board-wrap, .stock-table-viewport, .pos-ipos-tablewrap) {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+html[data-theme] body.internal-portal-shell .page-content,
+html[data-theme] body.internal-portal-shell .workspace-gateway.portal-shell,
+body.internal-portal-shell .page-content,
+body.internal-portal-shell .workspace-gateway.portal-shell {
+    width: min(1180px, calc(100% - clamp(24px, 4vw, 64px))) !important;
+    max-width: 1180px !important;
+    margin-inline: auto !important;
+    box-sizing: border-box !important;
+}
+
+@media (max-width: 980px) {
+    html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar,
+    body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-app-topbar {
+        grid-template-columns: minmax(0, 1fr) auto !important;
+        grid-template-areas:
+            "brand user"
+            "center center" !important;
+        gap: 12px 14px !important;
+        min-height: auto !important;
+        padding: 12px clamp(12px, 4vw, 22px) !important;
+    }
+
+    html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-left,
+    body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-left {
+        grid-area: brand !important;
+    }
+
+    html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-logo,
+    body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-logo {
+        grid-area: center !important;
+        width: min(238px, 74vw) !important;
+        height: 42px !important;
+    }
+
+    html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-user,
+    body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-user {
+        grid-area: user !important;
+    }
+
+    html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) .internal-module-layout,
+    html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) .module-layout,
+    html[data-theme] body.internal-clean-page-shell .clean-module-layout,
+    body:is(.internal-module-shell, .internal-clean-page-shell) .internal-module-layout,
+    body:is(.internal-module-shell, .internal-clean-page-shell) .module-layout,
+    body.internal-clean-page-shell .clean-module-layout {
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 14px !important;
+    }
+
+    html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) :is(.info-sidebar, .internal-module-nav, .hris-module-disclosure, .information-sidebar-card),
+    body:is(.internal-module-shell, .internal-clean-page-shell) :is(.info-sidebar, .internal-module-nav, .hris-module-disclosure, .information-sidebar-card) {
+        position: static !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+}
+
+@media (max-width: 620px) {
+    html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-separator,
+    html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-left .brand-logo-wide,
+    body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-separator,
+    body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-topbar-left .brand-logo-wide {
+        display: none !important;
+    }
+
+    html[data-theme] body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-brand-pill,
+    body:is(.internal-portal-shell, .internal-module-shell, .internal-clean-page-shell) .internal-brand-pill {
+        min-width: 88px !important;
+        max-width: 112px !important;
+        min-height: 42px !important;
+        padding-inline: 12px !important;
+    }
+
+    html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) .breadcrumb-list,
+    html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) .page-content.hris-clean-shell,
+    html[data-theme] body:is(.internal-module-shell, .internal-clean-page-shell) .internal-module-footer,
+    body:is(.internal-module-shell, .internal-clean-page-shell) .breadcrumb-list,
+    body:is(.internal-module-shell, .internal-clean-page-shell) .page-content.hris-clean-shell,
+    body:is(.internal-module-shell, .internal-clean-page-shell) .internal-module-footer,
+    html[data-theme] body.internal-portal-shell .page-content,
+    html[data-theme] body.internal-portal-shell .workspace-gateway.portal-shell,
+    body.internal-portal-shell .page-content,
+    body.internal-portal-shell .workspace-gateway.portal-shell {
+        width: min(100% - 20px, 1500px) !important;
+    }
+}

@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, session, request, jsonify, redirect, url_for
+from flask import Blueprint, current_app, render_template, session, request, jsonify, redirect, url_for
 from database import get_db
 from services.rbac import can_access_pos_terminal, has_permission, is_scoped_role, normalize_role
 from services.hris_catalog import get_hris_navigation_modules, role_can_see_hris_navigation
@@ -15,7 +15,6 @@ BJAS_DRIVE_EXTERNAL_URL = "https://mataramsport.space"
 
 WMS_ROUTE_ALIASES = {
     "dashboard": "/dashboard/",
-    "barcode-stiker": "/stock/barcode",
     "input-item": "/stock/?workspace=products",
     "request-owner": "/request/owner",
     "request-gudang": "/request/",
@@ -26,6 +25,20 @@ WMS_ROUTE_ALIASES = {
     "stock-produk": "/stock/",
     "audit-operasional": "/audit/",
 }
+
+
+def _barcode_public_entry_url():
+    hosts = current_app.config.get("BARCODE_PUBLIC_HOSTS") or []
+    if isinstance(hosts, str):
+        hosts = [hosts]
+    for host in hosts:
+        candidate = str(host or "").strip().rstrip("/")
+        if not candidate:
+            continue
+        if "://" in candidate:
+            return f"{candidate}/"
+        return f"https://{candidate}/"
+    return "/stock/barcode"
 
 
 def _redirect_with_query(target):
@@ -418,7 +431,10 @@ def _build_module_hub(module_key, item_slug=None):
     for item in module["nav"]:
         nav_item = dict(item)
         nav_item["active"] = item["slug"] == selected_nav["slug"]
-        nav_item["href"] = item.get("target") or f"/modul/{module_key}/{item['slug']}"
+        if module_key == "wms" and item["slug"] in {"barcode-stiker", "barcode-mataram"}:
+            nav_item["href"] = _barcode_public_entry_url()
+        else:
+            nav_item["href"] = item.get("target") or f"/modul/{module_key}/{item['slug']}"
         nav_items.append(nav_item)
 
     cards = [dict(card) for card in module.get("cards", [])]
@@ -1067,7 +1083,7 @@ def get_dashboard_safe(db, warehouse_id):
 # ==========================
 @dashboard_bp.route("/")
 def portal_home():
-    return redirect(url_for("dashboard.workspace_gateway"))
+    return workspace_gateway()
 
 
 @dashboard_bp.route("/dashboard/")
@@ -1163,6 +1179,9 @@ def workspace_gateway():
 @dashboard_bp.route("/wms/<item_slug>")
 def wms_route_alias(item_slug=None):
     safe_item_slug = str(item_slug or "stock-produk").strip().lower()
+    if safe_item_slug in {"barcode-stiker", "barcode-mataram"}:
+        return _redirect_with_query(_barcode_public_entry_url())
+
     redirect_target = WMS_ROUTE_ALIASES.get(safe_item_slug)
     if redirect_target:
         return _redirect_with_query(redirect_target)

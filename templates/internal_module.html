@@ -6,7 +6,7 @@
 
 {% block extra_head %}
 {{ super() }}
-<link rel="stylesheet" href="{{ asset_url('css/internal_portal_zip.css') }}?v={{ app_version|default('20260520', true) }}-layoutfix-20260521-stability">
+<link rel="stylesheet" href="{{ internal_portal_css_url }}">
 {% endblock %}
 
 {% block page_header %}

@@ -329,6 +329,19 @@
         line-height: 1.7;
         text-align: center;
     }
+    .document-approval-sign-feedback {
+        display: none;
+        margin: 0;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: #fff7ed;
+        border: 1px solid rgba(249, 115, 22, 0.22);
+        color: #9a3412;
+        font-size: 13px;
+        line-height: 1.55;
+        text-align: center;
+    }
+    .document-approval-sign-feedback.is-visible { display: block; }
     .document-approval-sign-actions { display: grid; gap: 10px; }
     .document-approval-sign-actions .ghost-button,
     .document-approval-sign-actions button[type="submit"] {
@@ -371,6 +384,7 @@
         .document-approval-preview-frame iframe { min-height: 54vh; }
     }
     @media print {
+        @page { size: A4 portrait; margin: 10mm; }
         .page-hero,
         .page-actions-desktop-slot,
         .mobile-command-deck,
@@ -378,14 +392,17 @@
         .document-approval-sign-actions { display: none !important; }
         .document-approval-workboard,
         .document-approval-paper,
+        .document-approval-preview-stage,
         .document-approval-panel,
         .document-approval-sign-section {
             box-shadow: none;
             break-inside: avoid;
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
         }
     }
 </style>
-<link rel="stylesheet" href="{{ asset_url('css/internal_portal_zip.css') }}?v={{ app_version|default('20260520', true) }}-layoutfix-20260521-stability">
+<link rel="stylesheet" href="{{ internal_portal_css_url }}">
 {% endblock %}
 
 {% block page_header %}
@@ -601,6 +618,7 @@
                         <canvas data-document-signature-canvas aria-label="Area tanda tangan digital"></canvas>
                     </div>
                     <p class="document-approval-sign-help">Pengesahan digital akan memperbarui tanda tangan aktif pada dokumen ini. Gunakan tombol ulangi jika perlu membersihkan coretan dan menulis ulang tanda tangan dari awal.</p>
+                    <p class="document-approval-sign-feedback" data-document-signature-feedback role="status" aria-live="polite"></p>
                     <div class="document-approval-sign-actions">
                         <button type="button" class="ghost-button" data-document-signature-clear>Ulangi Tanda Tangan</button>
                         <button type="submit" {% if not document.attachment_url %}disabled{% endif %}>Simpan Pengesahan</button>
@@ -632,6 +650,7 @@
             const form = root.closest("form");
             const input = form ? form.querySelector("[data-document-signature-input]") : null;
             const clearButton = form ? form.querySelector("[data-document-signature-clear]") : null;
+            const feedback = form ? form.querySelector("[data-document-signature-feedback]") : null;
             if (!canvas || !form || !input) {
                 return;
             }
@@ -683,6 +702,10 @@
                 }
                 input.value = canvas.toDataURL("image/png");
                 root.dataset.signatureReady = "1";
+                if (feedback) {
+                    feedback.textContent = "";
+                    feedback.classList.remove("is-visible");
+                }
             };
 
             const startDrawing = function (event) {
@@ -727,6 +750,10 @@
                     input.value = "";
                     prepareCanvas("");
                     root.dataset.signatureReady = "0";
+                    if (feedback) {
+                        feedback.textContent = "";
+                        feedback.classList.remove("is-visible");
+                    }
                 });
             }
 
@@ -735,7 +762,10 @@
                     return;
                 }
                 event.preventDefault();
-                window.alert("Tanda tangan digital belum diisi.");
+                if (feedback) {
+                    feedback.textContent = "Tanda tangan digital belum diisi. Tulis tanda tangan di area atas sebelum menyimpan.";
+                    feedback.classList.add("is-visible");
+                }
             });
 
             window.addEventListener("resize", function () {

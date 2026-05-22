@@ -10161,6 +10161,51 @@ body.login-page .login-form-grid button[type="submit"] {
     min-height: 52px;
 }
 
+body.login-page.login-otp-page .login-code-form {
+    gap: 10px;
+    margin-top: 2px;
+}
+
+body.login-page.login-otp-page .login-code-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(126px, 0.45fr);
+    align-items: stretch;
+    gap: 12px;
+}
+
+body.login-page.login-otp-page .login-code-row input {
+    min-height: 54px;
+    text-align: center;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+}
+
+body.login-page.login-otp-page .login-code-row button {
+    min-width: 126px;
+    padding-inline: 18px;
+    white-space: nowrap;
+}
+
+body.login-page.login-otp-page .login-secondary-stack {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+body.login-page.login-otp-page .login-secondary-form {
+    gap: 0;
+}
+
+body.login-page.login-otp-page .login-secondary-form .ghost-button {
+    min-height: 50px;
+    padding-inline: 18px;
+    line-height: 1.35;
+    text-align: center;
+    white-space: normal;
+}
+
 body.login-page .password-box {
     position: relative;
 }
@@ -10577,6 +10622,49 @@ body .sidebar.sidebar-app-nav .sidebar-footer-actions {
 
     body.login-page .login-panel-copy {
         margin-bottom: 16px;
+    }
+
+    body.login-page.login-otp-page .login-panel-copy h1 {
+        font-size: clamp(2rem, 12vw, 2.65rem);
+        line-height: 1.04;
+    }
+
+    body.login-page.login-otp-page .login-form-panel .subcopy {
+        line-height: 1.55;
+    }
+
+    body.login-page.login-otp-page .flash-stack {
+        margin-bottom: 14px;
+    }
+
+    body.login-page.login-otp-page .msg {
+        padding: 12px 14px;
+        line-height: 1.45;
+    }
+
+    body.login-page.login-otp-page .login-code-row {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    body.login-page.login-otp-page .login-code-row input,
+    body.login-page.login-otp-page .login-code-row button {
+        min-height: 52px;
+    }
+
+    body.login-page.login-otp-page .login-code-row button {
+        min-width: 0;
+    }
+
+    body.login-page.login-otp-page .login-secondary-stack {
+        gap: 9px;
+        margin-top: 10px;
+    }
+
+    body.login-page.login-otp-page .login-footnote {
+        margin-top: 12px;
+        font-size: 0.82rem;
+        line-height: 1.55;
     }
 
     body .login-theme-row {

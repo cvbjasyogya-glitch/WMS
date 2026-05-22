@@ -34263,6 +34263,21 @@ class WmsRoutesTestCase(unittest.TestCase):
         self.assertEqual(unsafe_response.status_code, 302)
         self.assertEqual(unsafe_response.headers.get("Location"), "https://barcode.cvbjas.com/")
 
+    def test_wms_barcode_entry_points_redirect_to_public_domain(self):
+        self.app.config.update(BARCODE_PUBLIC_HOSTS=["barcode.cvbjas.com"])
+        self.create_user("owner_barcode_public_entry", "pass1234", "owner")
+        self.login("owner_barcode_public_entry", "pass1234")
+
+        alias_response = self.client.get("/wms/barcode-stiker?warehouse=1", follow_redirects=False)
+        self.assertEqual(alias_response.status_code, 302)
+        self.assertEqual(alias_response.headers.get("Location"), "https://barcode.cvbjas.com/?warehouse=1")
+
+        wms_hub_response = self.client.get("/modul/wms/")
+        self.assertEqual(wms_hub_response.status_code, 200)
+        wms_hub_html = wms_hub_response.get_data(as_text=True)
+        self.assertIn('href="https://barcode.cvbjas.com/"', wms_hub_html)
+        self.assertIn("Barcode/Stiker", wms_hub_html)
+
     def test_barcode_nginx_config_protects_static_site_with_portal_auth_request(self):
         config_text = Path("deploy/nginx/barcode.cvbjas.com.conf").read_text(encoding="utf-8")
         bootstrap_text = Path("deploy/nginx/barcode.cvbjas.com.bootstrap.conf").read_text(encoding="utf-8")
