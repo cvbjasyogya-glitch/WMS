@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="UTF-8">
@@ -14,8 +14,8 @@
 {% set brand_logo_192_url = asset_url('brand/mataram-logo-192.png') %}
 {% set manifest_url = asset_url('manifest.webmanifest') %}
 {% set dashboard_css_url = asset_url('css/dashboard.css') ~ '?v=' ~ (app_version|default('20260520', true)) %}
-{% set layout_consistency_css_url = asset_url('css/layout_consistency_fixes.css') ~ '?v=' ~ (app_version|default('20260522-layout-consistency', true)) %}
-{% set internal_portal_css_url = asset_url('css/internal_portal_zip.css') ~ '?v=' ~ (app_version|default('20260520', true)) ~ '-layoutfix-20260522-shellguard' %}
+{% set layout_consistency_css_url = asset_url('css/layout_consistency_fixes.css') ~ '?v=' ~ (app_version|default('20260522-layout-consistency', true)) ~ '-hris-v2-responsive' %}
+{% set internal_portal_css_url = asset_url('css/internal_portal_zip.css') ~ '?v=' ~ (app_version|default('20260520', true)) ~ '-layoutfix-20260522-hris-v2' %}
 {% set app_shell_js_url = asset_url('js/app_shell.js') %}
 {% set push_notifications_js_url = asset_url('js/push_notifications.js') %}
 {% set web_notifications_js_url = asset_url('js/web_notifications.js') %}

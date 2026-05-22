@@ -1,11 +1,11 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 
 {% block title %}HRIS | ERP-CV.BJAS{% endblock %}
 {% block body_class %}internal-module-shell{% endblock %}
 {% block eyebrow %}HRIS{% endblock %}
 {% block page_title %}{% if selected_module.slug == "dashboard" %}Dashboard HRIS{% else %}HRIS Integration Hub{% endif %}{% endblock %}
 {% block page_subtitle %}{% if selected_module.slug == "dashboard" %}Dashboard ini menyorot announcement aktif dan snapshot jadwal tim lintas gudang yang sudah tersambung ke data HRIS. Semua user login bisa memantau ringkasannya, sementara pengaturan detail tetap dipegang HR dan Super Admin.{% else %}Landing page ini menyiapkan jalur integrasi HRIS berdasarkan struktur modul Horilla 1.0, sehingga pengembangan berikutnya bisa dilakukan modul per modul tanpa merusak flow WMS yang sudah berjalan.{% endif %}{% endblock %}
-{% block page_content_class %}hris-clean-shell{% endblock %}
+{% block page_content_class %}hris-clean-shell hris-responsive-shell{% endblock %}
 
 {% block extra_head %}
 {{ super() }}
